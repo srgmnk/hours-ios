@@ -3,387 +3,301 @@ import UIKit
 
 struct CityListRow: Identifiable, Equatable {
     let id: String
+    let index: Int
     let cityName: String
-    let timeText: String
-    let dayNightSymbol: String
-    let dateText: String
-    let centerBottomText: String
-    let utcOffsetValueText: String
+    let timeZoneID: String
     let isCurrent: Bool
 }
 
-struct CityReorderListView: UIViewControllerRepresentable {
+private struct RowFramePreferenceKey: PreferenceKey {
+    static var defaultValue: [String: CGRect] = [:]
+
+    static func reduce(value: inout [String: CGRect], nextValue: () -> [String: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
+    }
+}
+
+struct CityReorderListView: View {
+    @ObservedObject var viewModel: TimeDialViewModel
     let rows: [CityListRow]
     let onReorderStart: (String) -> Void
     let onMove: (Int, Int) -> Void
     let onDelete: (String) -> Void
 
-    func makeUIViewController(context: Context) -> CityReorderListController {
-        CityReorderListController(
-            rows: rows,
-            onReorderStart: onReorderStart,
-            onMove: onMove,
-            onDelete: onDelete
-        )
-    }
-
-    func updateUIViewController(_ uiViewController: CityReorderListController, context: Context) {
-        uiViewController.updateRows(rows)
-    }
-}
-
-final class CityReorderListController: UIViewController, UICollectionViewDelegate {
-    private var rows: [CityListRow]
-    private var rowByID: [String: CityListRow]
-    private var pendingRows: [CityListRow]?
-
-    private var collectionView: UICollectionView!
-    private var dataSource: UICollectionViewDiffableDataSource<Int, String>!
-    private var cellRegistration: UICollectionView.CellRegistration<UICollectionViewListCell, String>!
-    private var longPressRecognizer: UILongPressGestureRecognizer!
-
-    private var isInteractiveReordering = false
-    private var isSwipeInteractionInFlight = false
-    private var swipeClearWorkItem: DispatchWorkItem?
-
-    private var deleteRunCounter = 0
-    private var activeDeleteRunID: Int?
-    private var activeDeleteRunApplyCount = 0
-    private var activeDeletingCityID: String?
+    @State private var swipeOffsets: [String: CGFloat] = [:]
+    @State private var swipeStates: [String: SwipeTrackingState] = [:]
+    @State private var openSwipeID: String?
+    @State private var activeDragID: String?
+    @State private var activeDragOffset: CGFloat = 0
+    @State private var rowFrames: [String: CGRect] = [:]
+    @State private var collapsingID: String?
 
     private let deleteHaptics = UINotificationFeedbackGenerator()
+    private let scrollSpaceName = "CityScrollSpace"
+    private let rowHeight: CGFloat = 148
+    private let deleteRevealWidth: CGFloat = 88
+    private let collapseDuration: TimeInterval = 0.22
+    private let defaultCardBackground = Color(red: 0xF7 / 255, green: 0xF7 / 255, blue: 0xF7 / 255)
 
-    private let onReorderStart: (String) -> Void
-    private let onMove: (Int, Int) -> Void
-    private let onDelete: (String) -> Void
-
-    init(
-        rows: [CityListRow],
-        onReorderStart: @escaping (String) -> Void,
-        onMove: @escaping (Int, Int) -> Void,
-        onDelete: @escaping (String) -> Void
-    ) {
-        self.rows = rows
-        self.rowByID = Dictionary(uniqueKeysWithValues: rows.map { ($0.id, $0) })
-        self.onReorderStart = onReorderStart
-        self.onMove = onMove
-        self.onDelete = onDelete
-        super.init(nibName: nil, bundle: nil)
+    private enum SwipeIntent {
+        case undecided
+        case horizontal
+        case vertical
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
+    private struct SwipeTrackingState {
+        var intent: SwipeIntent
+        var startOffset: CGFloat
     }
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-
-        var listConfig = UICollectionLayoutListConfiguration(appearance: .plain)
-        listConfig.showsSeparators = false
-        listConfig.backgroundColor = .clear
-        listConfig.leadingSwipeActionsConfigurationProvider = nil
-        listConfig.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in
-            guard let self else { return nil }
-            guard !self.isInteractiveReordering, !self.isSwipeInteractionInFlight else { return nil }
-            guard self.rows.count > 1 else { return nil }
-            guard let itemID = self.dataSource.itemIdentifier(for: indexPath),
-                  let row = self.rowByID[itemID] else { return nil }
-
-            self.markSwipeInteractionInFlight(reason: "provider")
-
-            let action = UIContextualAction(style: .destructive, title: nil) { [weak self] _, _, completion in
-                guard let self else {
-                    completion(false)
-                    return
+    var body: some View {
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(rows) { row in
+                    rowView(row)
                 }
 
-                guard let deleteIndex = self.rows.firstIndex(where: { $0.id == itemID }) else {
-                    self.scheduleSwipeInteractionClear(delay: 0.2)
-                    completion(false)
-                    return
+                Color.clear
+                    .frame(height: 220)
+            }
+        }
+        .coordinateSpace(name: scrollSpaceName)
+        .scrollIndicators(.hidden)
+        .scrollDisabled(activeDragID != nil)
+        .onPreferenceChange(RowFramePreferenceKey.self) { rowFrames = $0 }
+        .onAppear { deleteHaptics.prepare() }
+        .onChange(of: rows.map(\.id)) { _, newIDs in
+            let idSet = Set(newIDs)
+            swipeOffsets = swipeOffsets.filter { idSet.contains($0.key) }
+            swipeStates = swipeStates.filter { idSet.contains($0.key) }
+            if let openSwipeID, !idSet.contains(openSwipeID) {
+                self.openSwipeID = nil
+            }
+            if let activeDragID, !idSet.contains(activeDragID) {
+                self.activeDragID = nil
+                activeDragOffset = 0
+            }
+            if let collapsingID, !idSet.contains(collapsingID) {
+                self.collapsingID = nil
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func rowView(_ row: CityListRow) -> some View {
+        let horizontalOffset = swipeOffsets[row.id] ?? 0
+        let isSwiping = horizontalOffset < 0
+        let isDragging = activeDragID == row.id
+        let isCollapsing = collapsingID == row.id
+
+        ZStack(alignment: .trailing) {
+            if isSwiping && rows.count > 1 {
+                HStack {
+                    Spacer(minLength: 0)
+                    DeleteButtonView {
+                        handleDelete(row.id)
+                    }
+                    .padding(.trailing, 20)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
 
-                self.deleteRunCounter += 1
-                let runID = self.deleteRunCounter
-                self.activeDeleteRunID = runID
-                self.activeDeleteRunApplyCount = 0
-                self.activeDeletingCityID = itemID
+            HStack {
+                Spacer(minLength: 0)
+                CityCardView(
+                    viewModel: viewModel,
+                    cityID: row.id,
+                    cityName: row.cityName,
+                    timeZoneID: row.timeZoneID,
+                    cardBackgroundColor: isSwiping ? .white : defaultCardBackground
+                )
+                Spacer(minLength: 0)
+            }
+            .frame(height: 140)
+            .padding(.bottom, 8)
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .preference(
+                            key: RowFramePreferenceKey.self,
+                            value: [row.id: geo.frame(in: .named(scrollSpaceName))]
+                        )
+                }
+            )
+            .offset(x: horizontalOffset)
+            .offset(y: isDragging ? activeDragOffset : 0)
+            .scaleEffect(isDragging ? 1.01 : 1.0)
+            .zIndex(isDragging ? 1000 : 0)
+        }
+        .frame(height: isCollapsing ? 0 : rowHeight, alignment: .top)
+        .opacity(isCollapsing ? 0 : 1)
+        .clipped()
+        .contentShape(Rectangle())
+        .animation(.easeInOut(duration: collapseDuration), value: isCollapsing)
+        .simultaneousGesture(swipeGesture(for: row.id))
+        .simultaneousGesture(reorderGesture(for: row.id))
+    }
 
-                let beforeIDs = self.rows.map(\.id).joined(separator: ",")
-                let currentBefore = self.rows.first(where: { $0.isCurrent })?.id ?? "none"
-                self.logDelete(
-                    "run=\(runID) begin index=\(deleteIndex) id=\(itemID) wasCurrent=\(row.isCurrent) citiesBefore=[\(beforeIDs)] currentBefore=\(currentBefore)"
+    private func swipeGesture(for id: String) -> some Gesture {
+        DragGesture(minimumDistance: 8)
+            .onChanged { value in
+                guard activeDragID == nil, collapsingID == nil, rows.count > 1 else { return }
+
+                var state = swipeStates[id] ?? SwipeTrackingState(
+                    intent: .undecided,
+                    startOffset: swipeOffsets[id] ?? 0
                 )
 
-                // Fire exactly once per delete before model/snapshot update.
-                self.deleteHaptics.notificationOccurred(.error)
-                self.deleteHaptics.prepare()
+                let dx = value.translation.width
+                let dy = value.translation.height
 
-                self.markSwipeInteractionInFlight(reason: "delete_action")
-                self.onDelete(itemID)
-                self.scheduleSwipeInteractionClear(delay: 0.2)
-                completion(true)
-            }
-
-            action.image = UIImage(systemName: "trash.fill")
-            action.backgroundColor = UIColor(red: 0xE8 / 255, green: 0x53 / 255, blue: 0x34 / 255, alpha: 1)
-
-            let config = UISwipeActionsConfiguration(actions: [action])
-            config.performsFirstActionWithFullSwipe = false
-            return config
-        }
-
-        let layout = UICollectionViewCompositionalLayout.list(using: listConfig)
-        collectionView = UICollectionView(frame: .zero, collectionViewLayout: layout)
-        collectionView.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.backgroundColor = .clear
-        collectionView.isScrollEnabled = true
-        collectionView.alwaysBounceVertical = true
-        collectionView.reorderingCadence = .immediate
-        collectionView.delegate = self
-        collectionView.contentInset = UIEdgeInsets(top: 66, left: 0, bottom: 200, right: 0)
-        collectionView.scrollIndicatorInsets = collectionView.contentInset
-
-        cellRegistration = UICollectionView.CellRegistration<UICollectionViewListCell, String> { [weak self] cell, _, itemID in
-            guard let self, let row = self.rowByID[itemID] else { return }
-            self.configure(cell: cell, with: row)
-        }
-
-        dataSource = UICollectionViewDiffableDataSource<Int, String>(collectionView: collectionView) { [weak self] collectionView, indexPath, itemID in
-            guard let self else { return nil }
-            return collectionView.dequeueConfiguredReusableCell(using: self.cellRegistration, for: indexPath, item: itemID)
-        }
-        dataSource.reorderingHandlers.canReorderItem = { [weak self] itemID in
-            self?.rowByID[itemID] != nil
-        }
-        dataSource.reorderingHandlers.didReorder = { [weak self] transaction in
-            guard let self else { return }
-            // Keep local order synced with the final diffable order and notify ViewModel once.
-            var updatedRows: [CityListRow] = []
-            updatedRows.reserveCapacity(transaction.finalSnapshot.itemIdentifiers.count)
-            for itemID in transaction.finalSnapshot.itemIdentifiers {
-                if let row = self.rowByID[itemID] {
-                    updatedRows.append(row)
+                if state.intent == .undecided {
+                    if abs(dx) > abs(dy) + 8 {
+                        state.intent = .horizontal
+                    } else if abs(dy) > abs(dx) + 8 {
+                        state.intent = .vertical
+                    } else {
+                        swipeStates[id] = state
+                        return
+                    }
                 }
+
+                if state.intent == .horizontal {
+                    if let openSwipeID, openSwipeID != id {
+                        closeOpenSwipe(animated: true)
+                    }
+                    let raw = state.startOffset + dx
+                    swipeOffsets[id] = min(0, max(-deleteRevealWidth, raw))
+                }
+
+                swipeStates[id] = state
             }
+            .onEnded { _ in
+                guard activeDragID == nil else { return }
+                let state = swipeStates[id] ?? SwipeTrackingState(
+                    intent: .undecided,
+                    startOffset: swipeOffsets[id] ?? 0
+                )
+                swipeStates[id] = nil
 
-            guard !updatedRows.isEmpty else { return }
-            self.rows = updatedRows
-            self.rowByID = Dictionary(uniqueKeysWithValues: updatedRows.map { ($0.id, $0) })
+                guard state.intent == .horizontal else {
+                    return
+                }
 
-            if let difference = transaction.difference.inferringMoves() as CollectionDifference<String>? {
-                for change in difference {
-                    if case let .insert(offset: destination, element: movedID, associatedWith: sourceAssoc?) = change {
-                        if let source = difference.first(where: {
-                            if case let .remove(_, element, associatedWith) = $0 {
-                                return associatedWith == sourceAssoc && element == movedID
-                            }
-                            return false
-                        }), case let .remove(offset: sourceIndex, _, _) = source {
-                            self.onMove(sourceIndex, destination)
-                            break
+                let currentOffset = swipeOffsets[id] ?? 0
+                let shouldOpen = currentOffset <= -(deleteRevealWidth * 0.45)
+
+                withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.9)) {
+                    if shouldOpen {
+                        swipeOffsets[id] = -deleteRevealWidth
+                        openSwipeID = id
+                    } else {
+                        swipeOffsets[id] = 0
+                        if openSwipeID == id {
+                            openSwipeID = nil
                         }
                     }
                 }
             }
+    }
+
+    private func reorderGesture(for id: String) -> some Gesture {
+        LongPressGesture(minimumDuration: 0.30)
+            .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .named(scrollSpaceName)))
+            .onChanged { value in
+                switch value {
+                case .first(true):
+                    beginDragging(id)
+                case .second(true, let drag?):
+                    beginDragging(id)
+                    activeDragOffset = drag.translation.height
+                    updateReorderTarget(for: id, translationY: drag.translation.height)
+                default:
+                    break
+                }
+            }
+            .onEnded { _ in
+                endDragging(id)
+            }
+    }
+
+    private func beginDragging(_ id: String) {
+        guard collapsingID == nil else { return }
+        guard activeDragID == nil else { return }
+
+        closeOpenSwipe(animated: true)
+        activeDragID = id
+        activeDragOffset = 0
+        onReorderStart(id)
+    }
+
+    private func endDragging(_ id: String) {
+        guard activeDragID == id else { return }
+        withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.9)) {
+            activeDragOffset = 0
+        }
+        activeDragID = nil
+    }
+
+    private func updateReorderTarget(for draggingID: String, translationY: CGFloat) {
+        guard activeDragID == draggingID else { return }
+        guard let currentIndex = rows.firstIndex(where: { $0.id == draggingID }) else { return }
+        guard let draggingFrame = rowFrames[draggingID] else { return }
+
+        let draggedMidY = draggingFrame.midY + translationY
+        let candidates = rows.compactMap { row -> (id: String, midY: CGFloat)? in
+            guard let frame = rowFrames[row.id] else { return nil }
+            return (row.id, frame.midY)
         }
 
-        view.addSubview(collectionView)
+        guard !candidates.isEmpty else { return }
+        guard let nearestID = candidates.min(by: { abs($0.midY - draggedMidY) < abs($1.midY - draggedMidY) })?.id,
+              let targetIndex = rows.firstIndex(where: { $0.id == nearestID }) else {
+            return
+        }
 
-        NSLayoutConstraint.activate([
-            collectionView.topAnchor.constraint(equalTo: view.topAnchor),
-            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+        guard targetIndex != currentIndex else { return }
 
-        longPressRecognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
-        longPressRecognizer.minimumPressDuration = 0.24
-        collectionView.addGestureRecognizer(longPressRecognizer)
+        withAnimation(.interactiveSpring(response: 0.26, dampingFraction: 0.88)) {
+            onMove(currentIndex, targetIndex)
+        }
+    }
 
+    private func closeOpenSwipe(animated: Bool) {
+        guard let openSwipeID else { return }
+        if animated {
+            withAnimation(.interactiveSpring(response: 0.24, dampingFraction: 0.9)) {
+                swipeOffsets[openSwipeID] = 0
+            }
+        } else {
+            swipeOffsets[openSwipeID] = 0
+        }
+        self.openSwipeID = nil
+    }
+
+    private func handleDelete(_ id: String) {
+        guard rows.count > 1 else { return }
+        guard collapsingID == nil else { return }
+
+        closeOpenSwipe(animated: false)
+        deleteHaptics.notificationOccurred(.error)
         deleteHaptics.prepare()
 
-        applySnapshot(reason: "initial", animatingDifferences: false)
-    }
+        withAnimation(.easeInOut(duration: collapseDuration)) {
+            collapsingID = id
+        }
 
-    func updateRows(_ newRows: [CityListRow]) {
-        rows = newRows
-        rowByID = Dictionary(uniqueKeysWithValues: newRows.map { ($0.id, $0) })
-
-        if let runID = activeDeleteRunID {
-            let afterIDs = newRows.map(\.id).joined(separator: ",")
-            let currentAfter = newRows.first(where: { $0.isCurrent })?.id ?? "none"
-            logDelete("run=\(runID) afterMutation citiesAfter=[\(afterIDs)] currentAfter=\(currentAfter)")
-            if let deletingID = activeDeletingCityID, newRows.contains(where: { $0.id == deletingID }) {
-                logDelete("run=\(runID) WARNING deleted city id=\(deletingID) is still present before snapshot apply")
+        DispatchQueue.main.asyncAfter(deadline: .now() + collapseDuration) {
+            let noAnimation = Transaction(animation: nil)
+            withTransaction(noAnimation) {
+                onDelete(id)
             }
-
-            // Delete-current path must be atomic: one model mutation -> one immediate snapshot apply.
-            pendingRows = nil
-            applySnapshot(reason: "deleteMutation", animatingDifferences: true)
-            return
-        }
-
-        if shouldQueueUpdate {
-            pendingRows = newRows
-            return
-        }
-
-        applySnapshot(reason: "updateRows", animatingDifferences: true)
-    }
-
-    private func applySnapshot(reason: String, animatingDifferences: Bool) {
-        assert(Thread.isMainThread)
-
-        let runID = activeDeleteRunID
-        if let runID {
-            activeDeleteRunApplyCount += 1
-            logDelete(
-                "run=\(runID) snapshotApply start count=\(rows.count) top3=[\(rows.prefix(3).map(\.id).joined(separator: ","))] reason=\(reason) applyCount=\(activeDeleteRunApplyCount)"
-            )
-            if activeDeleteRunApplyCount > 1 {
-                logDelete("run=\(runID) WARNING double-apply detector triggered applyCount=\(activeDeleteRunApplyCount)")
+            collapsingID = nil
+            swipeOffsets[id] = nil
+            swipeStates[id] = nil
+            if openSwipeID == id {
+                openSwipeID = nil
             }
         }
-
-        var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
-        snapshot.appendSections([0])
-        snapshot.appendItems(rows.map(\.id), toSection: 0)
-        dataSource.apply(snapshot, animatingDifferences: animatingDifferences) { [weak self] in
-            guard let self else { return }
-            if let runID = self.activeDeleteRunID {
-                self.logDelete(
-                    "run=\(runID) snapshotApply end itemCount=\(self.rows.count) top3=[\(self.rows.prefix(3).map(\.id).joined(separator: ","))]"
-                )
-                self.activeDeleteRunID = nil
-                self.activeDeleteRunApplyCount = 0
-                self.activeDeletingCityID = nil
-            }
-        }
-    }
-
-    private func configure(cell: UICollectionViewListCell, with row: CityListRow) {
-        cell.isOpaque = false
-        cell.backgroundColor = .clear
-        cell.contentView.backgroundColor = .clear
-        cell.layer.backgroundColor = UIColor.clear.cgColor
-        cell.layer.shadowOpacity = 0
-        cell.selectedBackgroundView = {
-            let view = UIView()
-            view.backgroundColor = .clear
-            return view
-        }()
-        cell.backgroundConfiguration = UIBackgroundConfiguration.clear()
-        cell.contentConfiguration = UIHostingConfiguration {
-            HStack {
-                Spacer(minLength: 0)
-                CityCardView(
-                    cityName: row.cityName,
-                    timeText: row.timeText,
-                    dayNightSymbol: row.dayNightSymbol,
-                    dateText: row.dateText,
-                    centerBottomText: row.centerBottomText,
-                    utcOffsetValueText: row.utcOffsetValueText,
-                    cardBackgroundColor: Color(red: 0xF7 / 255, green: 0xF7 / 255, blue: 0xF7 / 255)
-                )
-                Spacer(minLength: 0)
-            }
-            .padding(.bottom, 8)
-        }
-        .margins(.all, 0)
-    }
-
-    @objc
-    private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
-        let location = recognizer.location(in: collectionView)
-
-        switch recognizer.state {
-        case .began:
-            guard let indexPath = collectionView.indexPathForItem(at: location),
-                  let itemID = dataSource.itemIdentifier(for: indexPath) else { return }
-
-            isInteractiveReordering = true
-            onReorderStart(itemID)
-            collectionView.beginInteractiveMovementForItem(at: indexPath)
-        case .changed:
-            collectionView.updateInteractiveMovementTargetPosition(location)
-        case .ended:
-            collectionView.endInteractiveMovement()
-            endReorderSession()
-        default:
-            collectionView.cancelInteractiveMovement()
-            endReorderSession()
-        }
-    }
-
-    private func endReorderSession() {
-        isInteractiveReordering = false
-        flushPendingRowsIfPossible()
-    }
-
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
-        scheduleSwipeInteractionClear(delay: decelerate ? 0.25 : 0.15)
-        if !decelerate {
-            flushPendingRowsIfPossible()
-        }
-    }
-
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
-        scheduleSwipeInteractionClear(delay: 0.1)
-        flushPendingRowsIfPossible()
-    }
-
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
-        scheduleSwipeInteractionClear(delay: 0.1)
-        flushPendingRowsIfPossible()
-    }
-
-    private var shouldQueueUpdate: Bool {
-        isInteractiveReordering || isSwipeInteractionInFlight || isSwipeInteractionActive()
-    }
-
-    private func flushPendingRowsIfPossible() {
-        guard !shouldQueueUpdate else { return }
-        guard let pendingRows else { return }
-        self.pendingRows = nil
-        updateRows(pendingRows)
-    }
-
-    private func markSwipeInteractionInFlight(reason: String) {
-        isSwipeInteractionInFlight = true
-        scheduleSwipeInteractionClear(delay: 0.35)
-        _ = reason
-    }
-
-    private func scheduleSwipeInteractionClear(delay: TimeInterval) {
-        swipeClearWorkItem?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            self?.isSwipeInteractionInFlight = false
-        }
-        swipeClearWorkItem = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
-    }
-
-    private func isSwipeInteractionActive() -> Bool {
-        let hasActiveSwipeGesture = collectionView.gestureRecognizers?.contains(where: { gesture in
-            let name = NSStringFromClass(type(of: gesture))
-            let isSwipeGesture = name.localizedCaseInsensitiveContains("swipe")
-            let isActive = gesture.state == .began || gesture.state == .changed
-            return isSwipeGesture && isActive
-        }) ?? false
-
-        let hasVisibleSwipeOverlay = collectionView.subviews.contains(where: { view in
-            let name = NSStringFromClass(type(of: view))
-            let isSwipeView = name.localizedCaseInsensitiveContains("swipe")
-            return isSwipeView && !view.isHidden && view.alpha > 0.01 && view.bounds.width > 0 && view.bounds.height > 0
-        })
-
-        return hasActiveSwipeGesture || hasVisibleSwipeOverlay
-    }
-
-    private func logDelete(_ message: String) {
-        guard DebugSettings.enableCityDeleteDebug else { return }
-        print("[DELETE] \(message)")
     }
 }

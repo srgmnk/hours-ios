@@ -22,6 +22,7 @@ struct TimeDialScreen: View {
                     .ignoresSafeArea()
 
                 CityReorderListView(
+                    viewModel: viewModel,
                     rows: cityRows,
                     onReorderStart: handleReorderStart,
                     onMove: handleReorderMove,
@@ -119,28 +120,13 @@ struct TimeDialScreen: View {
         resetNotificationHaptics.prepare()
     }
 
-    private func dayNightSymbol(for city: City, at instant: Date) -> String {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = city.timeZone
-        let hour = calendar.component(.hour, from: instant)
-        return (8..<20).contains(hour) ? "sun.max.fill" : "moon.stars.fill"
-    }
-
-    private func centerBottomText(for city: City, at instant: Date) -> String {
-        viewModel.centerBottomText(for: city, at: instant)
-    }
-
     private var cityRows: [CityListRow] {
-        let instant = viewModel.selectedInstant
-        return viewModel.cities.map { city in
+        Array(viewModel.cities.enumerated()).map { index, city in
             CityListRow(
                 id: city.id,
+                index: index,
                 cityName: city.name,
-                timeText: CityTimeFormatter.formatTime(instant, in: city.timeZone),
-                dayNightSymbol: dayNightSymbol(for: city, at: instant),
-                dateText: CityTimeFormatter.formatDate(instant, in: city.timeZone),
-                centerBottomText: centerBottomText(for: city, at: instant),
-                utcOffsetValueText: CityTimeFormatter.formatUTCOffsetValue(instant, in: city.timeZone),
+                timeZoneID: city.timeZoneID,
                 isCurrent: viewModel.isCurrentCity(city)
             )
         }

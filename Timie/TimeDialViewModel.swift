@@ -10,12 +10,21 @@ final class TimeDialViewModel: ObservableObject {
         case past
     }
 
-    @Published private(set) var now = Date()
-    @Published var baseTime = Date()
+    @Published private(set) var now = Date() {
+        didSet { recomputeSelectedInstant() }
+    }
+    @Published var baseTime = Date() {
+        didSet { recomputeSelectedInstant() }
+    }
     @Published var cities: [City] = City.defaults
     @Published var currentCityID: String = City.defaults.first?.id ?? City.baseTimeZoneID
-    @Published var deltaMinutes = 0
-    @Published var isInteracting = false
+    @Published var selectedInstant = Date()
+    @Published var deltaMinutes = 0 {
+        didSet { recomputeSelectedInstant() }
+    }
+    @Published var isInteracting = false {
+        didSet { recomputeSelectedInstant() }
+    }
     @Published var rotationDegrees = 0.0
     @Published var dialSteps = 0 {
         didSet {
@@ -33,14 +42,8 @@ final class TimeDialViewModel: ObservableObject {
         return deltaMinutes > 0 ? .future : .past
     }
 
-    var selectedInstant: Date {
-        if deltaMinutes == 0, !isInteracting {
-            return now
-        }
-        return baseTime.addingTimeInterval(TimeInterval(deltaMinutes * 60))
-    }
-
     init() {
+        selectedInstant = now
         startTicker()
     }
 
@@ -60,10 +63,6 @@ final class TimeDialViewModel: ObservableObject {
         if deltaMinutes == 0 {
             isInteracting = false
         }
-    }
-
-    func endInteraction() {
-        isInteracting = false
     }
 
     func beginDialDrag() {
@@ -103,15 +102,16 @@ final class TimeDialViewModel: ObservableObject {
     }
 
     func centerBottomText(for city: City, at instant: Date) -> String {
-        guard !isCurrentCity(city) else { return "Current" }
+        centerBottomText(forCityID: city.id, cityTimeZoneID: city.timeZoneID, at: instant)
+    }
+
+    func centerBottomText(forCityID id: String, cityTimeZoneID: String, at instant: Date) -> String {
+        guard !isCurrentCityByID(id) else { return "Current" }
         let baseOffsetSeconds = currentCityTimeZone().secondsFromGMT(for: instant)
-        let cityOffsetSeconds = city.timeZone.secondsFromGMT(for: instant)
+        let cityOffsetSeconds = (TimeZone(identifier: cityTimeZoneID) ?? .current).secondsFromGMT(for: instant)
         let diffHours = (cityOffsetSeconds - baseOffsetSeconds) / 3600
-        if diffHours > 0 {
-            return "+\(diffHours)h"
-        } else if diffHours < 0 {
-            return "\(diffHours)h"
-        }
+        if diffHours > 0 { return "+\(diffHours)h" }
+        if diffHours < 0 { return "\(diffHours)h" }
         return "0h"
     }
 
@@ -130,27 +130,13 @@ final class TimeDialViewModel: ObservableObject {
         guard let removeIndex = cities.firstIndex(where: { $0.id == id }) else { return }
 
         let deletingCurrent = (id == currentCityID)
-        let fallbackCurrentID: String?
-        if deletingCurrent, cities.indices.contains(1) {
-            fallbackCurrentID = cities[1].id
-        } else {
-            fallbackCurrentID = currentCityID
-        }
-
         cities.remove(at: removeIndex)
 
-        if deletingCurrent, let newCurrentID = fallbackCurrentID {
-            currentCityID = newCurrentID
-        } else if !cities.contains(where: { $0.id == currentCityID }), let firstID = cities.first?.id {
-            currentCityID = firstID
-        }
+        guard !cities.isEmpty else { return }
 
-        // Keep the current city pinned at index 0.
-        if let currentIndex = cities.firstIndex(where: { $0.id == currentCityID }), currentIndex != 0 {
-            let current = cities.remove(at: currentIndex)
-            cities.insert(current, at: 0)
+        if deletingCurrent || !cities.contains(where: { $0.id == currentCityID }) {
+            currentCityID = cities[0].id
         }
-
     }
 
     func moveCities(fromOffsets: IndexSet, toOffset: Int) {
@@ -175,6 +161,14 @@ final class TimeDialViewModel: ObservableObject {
 
     private func city(for id: String) -> City? {
         cities.first { $0.id == id }
+    }
+
+    private func recomputeSelectedInstant() {
+        if deltaMinutes == 0, !isInteracting {
+            selectedInstant = now
+        } else {
+            selectedInstant = baseTime.addingTimeInterval(TimeInterval(deltaMinutes * 60))
+        }
     }
 
     private func applyRotation(_ degrees: Double, updateStep: Bool) {
@@ -236,5 +230,4 @@ final class TimeDialViewModel: ObservableObject {
             }
         }
     }
-
 }
