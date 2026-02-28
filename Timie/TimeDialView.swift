@@ -1,5 +1,11 @@
 import SwiftUI
 
+#if DEBUG
+let ENABLE_DIAL_TICK_DEBUG = true
+#else
+let ENABLE_DIAL_TICK_DEBUG = false
+#endif
+
 struct TimeDialView: View {
     private static let tickCount = 144
     private static let majorTickInterval = 6
@@ -14,13 +20,17 @@ struct TimeDialView: View {
 
     @State private var dragStartAngle: Double?
     @State private var startRotationDegrees = 0.0
+    @State private var isDragging = false
+    @State private var lastDebugLogAt = Date.distantPast
+    @State private var lastDebugSnapshot: DebugSnapshot?
 
     var body: some View {
         let futureProgressColor = Color(red: 232.0 / 255.0, green: 83.0 / 255.0, blue: 52.0 / 255.0)
         let pastProgressColor = Color.black
         let defaultTickColor = Color.black.opacity(0.2)
         let activeCenterTickIndex = Self.activeCenterTickIndex(rotationDegrees: rotationDegrees)
-        let progressTicks = Self.progressTickIndices(stepIndex: stepIndex, centerIndex: activeCenterTickIndex)
+        let progressTickSequence = Self.progressTickSequence(stepIndex: stepIndex, centerIndex: activeCenterTickIndex)
+        let progressTicks = Set(progressTickSequence)
 
         ZStack {
             Canvas { context, size in
@@ -77,12 +87,20 @@ struct TimeDialView: View {
                 }
             }
             .frame(width: diameter, height: diameter)
+
+            if ENABLE_DIAL_TICK_DEBUG {
+                debugTickOverlay(
+                    centerIndex: activeCenterTickIndex,
+                    filledTicks: progressTicks
+                )
+            }
         }
         .frame(width: diameter, height: diameter)
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
+                    isDragging = true
                     onDragBegan()
                     let center = CGPoint(x: diameter / 2, y: diameter / 2)
                     let angle = Self.angleDegrees(point: value.location, center: center)
@@ -108,12 +126,22 @@ struct TimeDialView: View {
 
                     dragStartAngle = nil
                     startRotationDegrees = currentRotation
+                    isDragging = false
                     onDragEnded(currentRotation, predictedRotation)
                 }
         )
         .onChange(of: resetSignal) { _, _ in
             dragStartAngle = nil
             startRotationDegrees = rotationDegrees
+            isDragging = false
+            lastDebugSnapshot = nil
+        }
+        .onChange(of: rotationDegrees) { _, _ in
+            guard ENABLE_DIAL_TICK_DEBUG else { return }
+            logDialDebugIfNeeded(
+                centerIndex: activeCenterTickIndex,
+                filledTicksInOrder: progressTickSequence
+            )
         }
     }
 
@@ -130,28 +158,18 @@ struct TimeDialView: View {
         return delta
     }
 
-    private static func progressTickIndices(stepIndex: Int, centerIndex: Int) -> Set<Int> {
+    private static func progressTickSequence(stepIndex: Int, centerIndex: Int) -> [Int] {
         guard stepIndex != 0 else { return [] }
         let steps = min(abs(stepIndex), tickCount - 1)
         let direction = stepIndex > 0 ? 1 : -1
-        var indices = Set<Int>()
+        var indices: [Int] = []
+        indices.reserveCapacity(steps)
 
         for offset in 1...steps {
             let raw = centerIndex + direction * offset
             let normalized = ((raw % tickCount) + tickCount) % tickCount
-            indices.insert(normalized)
+            indices.append(normalized)
         }
-
-        #if DEBUG
-        let firstColoredIndex = ((centerIndex + direction) % tickCount + tickCount) % tickCount
-        let lastColoredIndex = ((centerIndex + direction * steps) % tickCount + tickCount) % tickCount
-        let offsetMinutes = stepIndex * 10
-        print(
-            "TimeDial progress: offsetMinutes=\(offsetMinutes), steps=\(steps), direction=\(direction), " +
-            "firstColoredIndex=\(firstColoredIndex), lastColoredIndex=\(lastColoredIndex)"
-        )
-        #endif
-
         return indices
     }
 
@@ -159,5 +177,110 @@ struct TimeDialView: View {
         let degreesPerTick = 360.0 / Double(tickCount)
         let nearest = Int(((-rotationDegrees) / degreesPerTick).rounded())
         return ((nearest % tickCount) + tickCount) % tickCount
+    }
+
+    private static func signedDistance(from centerIndex: Int, to tickIndex: Int) -> Int {
+        let half = tickCount / 2
+        var delta = tickIndex - centerIndex
+        delta = ((delta + half) % tickCount + tickCount) % tickCount - half
+        return delta
+    }
+
+    @ViewBuilder
+    private func debugTickOverlay(centerIndex: Int, filledTicks: Set<Int>) -> some View {
+        let center = CGPoint(x: diameter / 2, y: diameter / 2)
+        let outerRadius = (diameter / 2) - 16
+        let degreesPerTick = 360.0 / Double(Self.tickCount)
+        let dotRadius = outerRadius - 8
+        let labelRadius = outerRadius - 32
+        let centerMarkerRadius = outerRadius - 44
+
+        ForEach(0..<Self.tickCount, id: \.self) { tick in
+            let angleDegrees = (Double(tick) * degreesPerTick) + rotationDegrees - 90
+            let angle = angleDegrees * .pi / 180
+            let relativeIndex = Self.signedDistance(from: centerIndex, to: tick)
+            let dotPoint = CGPoint(
+                x: center.x + cos(angle) * dotRadius,
+                y: center.y + sin(angle) * dotRadius
+            )
+            let labelPoint = CGPoint(
+                x: center.x + cos(angle) * labelRadius,
+                y: center.y + sin(angle) * labelRadius
+            )
+
+            Circle()
+                .fill(filledTicks.contains(tick) ? .red : Color.gray.opacity(0.12))
+                .frame(width: 4, height: 4)
+                .position(dotPoint)
+
+            Text(relativeIndex >= 0 ? "+\(relativeIndex)" : "\(relativeIndex)")
+                .font(.system(size: 8, weight: .regular, design: .monospaced))
+                .foregroundStyle(Color.gray.opacity(0.9))
+                .position(labelPoint)
+        }
+
+        let centerAngleDegrees = (Double(centerIndex) * degreesPerTick) + rotationDegrees - 90
+        let centerAngle = centerAngleDegrees * .pi / 180
+        let centerMarkerPoint = CGPoint(
+            x: center.x + cos(centerAngle) * centerMarkerRadius,
+            y: center.y + sin(centerAngle) * centerMarkerRadius
+        )
+        Circle()
+            .fill(.blue)
+            .frame(width: 8, height: 8)
+            .position(centerMarkerPoint)
+        Text("C")
+            .font(.system(size: 9, weight: .bold, design: .monospaced))
+            .foregroundStyle(.blue)
+            .position(
+                x: centerMarkerPoint.x,
+                y: centerMarkerPoint.y - 10
+            )
+    }
+
+    private func logDialDebugIfNeeded(centerIndex: Int, filledTicksInOrder: [Int]) {
+        guard isDragging else { return }
+
+        let offsetMinutes = stepIndex * 10
+        let directionSign = stepIndex == 0 ? 0 : (stepIndex > 0 ? 1 : -1)
+        let stepsFilled = filledTicksInOrder.count
+        let firstFilledTickIndex = filledTicksInOrder.first ?? -1
+        let lastFilledTickIndex = filledTicksInOrder.last ?? -1
+        let snapshot = DebugSnapshot(
+            offsetMinutes: offsetMinutes,
+            stepsFilled: stepsFilled,
+            directionSign: directionSign,
+            firstFilledTickIndex: firstFilledTickIndex,
+            lastFilledTickIndex: lastFilledTickIndex
+        )
+        guard snapshot != lastDebugSnapshot else { return }
+
+        let now = Date()
+        guard now.timeIntervalSince(lastDebugLogAt) >= 0.1 else { return }
+
+        let normalizedAngle = ((rotationDegrees.truncatingRemainder(dividingBy: 360)) + 360)
+            .truncatingRemainder(dividingBy: 360)
+        let sampleRelative = filledTicksInOrder.prefix(12).map { tick in
+            Self.signedDistance(from: centerIndex, to: tick)
+        }
+
+        print(
+            "[DIALDBG] angleRaw=\(String(format: "%.2f", rotationDegrees)) " +
+            "angleNorm=\(String(format: "%.2f", normalizedAngle)) " +
+            "offsetMin=\(offsetMinutes) sign=\(directionSign) steps=\(stepsFilled) " +
+            "center=\(centerIndex) first=\(firstFilledTickIndex) last=\(lastFilledTickIndex) " +
+            "filledRel=\(sampleRelative)"
+        )
+
+        lastDebugSnapshot = snapshot
+        lastDebugLogAt = now
+    }
+
+    private struct DebugSnapshot: Equatable {
+        let offsetMinutes: Int
+        let stepsFilled: Int
+        let directionSign: Int
+        let firstFilledTickIndex: Int
+        let lastFilledTickIndex: Int
     }
 }
