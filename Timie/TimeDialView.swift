@@ -132,15 +132,26 @@ struct TimeDialView: View {
 
     private static func progressTickIndices(stepIndex: Int, centerIndex: Int) -> Set<Int> {
         guard stepIndex != 0 else { return [] }
-        let cappedMagnitude = min(abs(stepIndex), tickCount - 1)
+        let steps = min(abs(stepIndex), tickCount - 1)
         let direction = stepIndex > 0 ? 1 : -1
         var indices = Set<Int>()
 
-        for offset in 0...cappedMagnitude {
+        for offset in 1...steps {
             let raw = centerIndex + direction * offset
             let normalized = ((raw % tickCount) + tickCount) % tickCount
             indices.insert(normalized)
         }
+
+        #if DEBUG
+        let firstColoredIndex = ((centerIndex + direction) % tickCount + tickCount) % tickCount
+        let lastColoredIndex = ((centerIndex + direction * steps) % tickCount + tickCount) % tickCount
+        let offsetMinutes = stepIndex * 10
+        print(
+            "TimeDial progress: offsetMinutes=\(offsetMinutes), steps=\(steps), direction=\(direction), " +
+            "firstColoredIndex=\(firstColoredIndex), lastColoredIndex=\(lastColoredIndex)"
+        )
+        #endif
+
         return indices
     }
 
