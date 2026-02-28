@@ -21,18 +21,23 @@ struct TimeDialView: View {
 
     @State private var dragStartAngle: Double?
     @State private var startRotationDegrees = 0.0
+    @State private var hasLoggedMapping = false
 
     var body: some View {
         let defaultTickColor = Color.black.opacity(0.2)
-        let relStep = stepIndex
-        let offsetMinutes = relStep * Self.minutesPerStep
-        let fillColor = offsetMinutes < 0
+        let offsetStepsSigned = stepIndex
+        let offsetMinutes = offsetStepsSigned * Self.minutesPerStep
+        let fillColor = offsetStepsSigned < 0
             ? Color(red: 232.0 / 255.0, green: 83.0 / 255.0, blue: 52.0 / 255.0)
             : .black
         let centerTickIndex = Self.activeCenterTickIndex(rotationDegrees: rotationDegrees)
-        let filledRelSteps = Self.filledRelativeSteps(relStep: relStep)
-        let filledSet = Set(filledRelSteps)
-        let filledBoundaryRelStep = filledRelSteps.last
+        let filledSet = Self.filledTickIndices(
+            centerTickIndex: centerTickIndex,
+            offsetStepsSigned: offsetStepsSigned
+        )
+        let filledBoundaryTickIndex = offsetStepsSigned == 0
+            ? nil
+            : Self.tickIndex(for: offsetStepsSigned, centerTickIndex: centerTickIndex)
 
         ZStack {
             Canvas { context, size in
@@ -64,8 +69,8 @@ struct TimeDialView: View {
 
                 // Layer 2: filled ticks overpainted with sign-based color.
                 if offsetMinutes != 0 {
-                    for rel in filledSet {
-                        let tick = Self.tickIndex(for: rel, centerTickIndex: centerTickIndex)
+                    for tick in 0..<Self.tickCount {
+                        guard filledSet.contains(tick) else { continue }
                         let tickPath = Self.tickPath(
                             tick: tick,
                             centerTickIndex: centerTickIndex,
@@ -88,9 +93,7 @@ struct TimeDialView: View {
                 debugTickOverlay(
                     centerTickIndex: centerTickIndex,
                     filledTicks: filledSet,
-                    boundaryTickIndex: filledBoundaryRelStep.map { rel in
-                        Self.tickIndex(for: rel, centerTickIndex: centerTickIndex)
-                    }
+                    boundaryTickIndex: filledBoundaryTickIndex
                 )
             }
         }
@@ -131,12 +134,18 @@ struct TimeDialView: View {
             dragStartAngle = nil
             startRotationDegrees = rotationDegrees
         }
+        .onAppear {
+            guard ENABLE_DIAL_TICK_DEBUG else { return }
+            guard !hasLoggedMapping else { return }
+            print("[DIALDBG] mapping: CCW => FUTURE(+), CW => PAST(-)")
+            hasLoggedMapping = true
+        }
         .onChange(of: stepIndex) { oldStep, newStep in
             guard ENABLE_DIAL_TICK_DEBUG else { return }
             guard newStep != oldStep else { return }
             logDialDebugIfNeeded(
                 centerTickIndex: centerTickIndex,
-                relStep: newStep
+                offsetStepsSigned: newStep
             )
         }
     }
@@ -159,15 +168,40 @@ struct TimeDialView: View {
         ((centerTickIndex - relativeStep) % tickCount + tickCount) % tickCount
     }
 
-    private static func filledRelativeSteps(relStep: Int) -> [Int] {
-        guard relStep != 0 else { return [] }
-        let clampedRelStep = relStep > 0 ? min(relStep, tickCount - 1) : max(relStep, -(tickCount - 1))
+    private static func clampedOffsetSteps(_ offsetStepsSigned: Int) -> Int {
+        max(-(tickCount - 1), min(tickCount - 1, offsetStepsSigned))
+    }
 
-        if clampedRelStep > 0 {
-            return Array(0...clampedRelStep)
+    private static func leftDistance(from centerTickIndex: Int, to tick: Int) -> Int {
+        (centerTickIndex - tick + tickCount) % tickCount
+    }
+
+    private static func rightDistance(from centerTickIndex: Int, to tick: Int) -> Int {
+        (tick - centerTickIndex + tickCount) % tickCount
+    }
+
+    private static func isTickFilled(
+        tick: Int,
+        centerTickIndex: Int,
+        offsetStepsSigned: Int
+    ) -> Bool {
+        let clamped = clampedOffsetSteps(offsetStepsSigned)
+        guard clamped != 0 else { return false }
+
+        if clamped > 0 {
+            // Future (+): fill left side from center up to +N.
+            return leftDistance(from: centerTickIndex, to: tick) <= clamped
         }
 
-        return Array(clampedRelStep...0)
+        // Past (-): fill right side from center down to -N.
+        return rightDistance(from: centerTickIndex, to: tick) <= abs(clamped)
+    }
+
+    private static func filledTickIndices(centerTickIndex: Int, offsetStepsSigned: Int) -> Set<Int> {
+        guard offsetStepsSigned != 0 else { return [] }
+        return Set((0..<tickCount).filter { tick in
+            isTickFilled(tick: tick, centerTickIndex: centerTickIndex, offsetStepsSigned: offsetStepsSigned)
+        })
     }
 
     private static func activeCenterTickIndex(rotationDegrees: Double) -> Int {
@@ -254,23 +288,28 @@ struct TimeDialView: View {
         }
     }
 
-    private func logDialDebugIfNeeded(centerTickIndex: Int, relStep: Int) {
-        let offsetMinutes = relStep * Self.minutesPerStep
-        let directionSign = relStep == 0 ? 0 : (relStep > 0 ? 1 : -1)
-        let filledRelSteps = Self.filledRelativeSteps(relStep: relStep)
-        let side = relStep == 0 ? "NONE" : (relStep > 0 ? "LEFT" : "RIGHT")
+    private func logDialDebugIfNeeded(centerTickIndex: Int, offsetStepsSigned: Int) {
+        let clampedSteps = Self.clampedOffsetSteps(offsetStepsSigned)
+        let offsetMinutes = clampedSteps * Self.minutesPerStep
+        let directionSign = clampedSteps == 0 ? 0 : (clampedSteps > 0 ? 1 : -1)
+        let side = clampedSteps == 0 ? "NONE" : (clampedSteps > 0 ? "LEFT" : "RIGHT")
+        let normalizedAngle = ((rotationDegrees.truncatingRemainder(dividingBy: 360)) + 360)
+            .truncatingRemainder(dividingBy: 360)
         let filledRange: String = {
-            guard relStep != 0 else { return "[]" }
-            if relStep > 0 { return "[0...+\(relStep)]" }
-            return "[\(relStep)...0]"
+            guard clampedSteps != 0 else { return "[]" }
+            if clampedSteps > 0 { return "[0...+\(clampedSteps)]" }
+            return "[\(clampedSteps)...0]"
         }()
-        let sampleRelative = Array(filledRelSteps.prefix(12))
+        let firstFilled = clampedSteps == 0 ? 0 : min(0, clampedSteps)
+        let lastFilled = clampedSteps == 0 ? 0 : max(0, clampedSteps)
 
         print(
-            "[DIALDBG] offsetMin=\(offsetMinutes >= 0 ? "+" : "")\(offsetMinutes) " +
-            "offsetSteps=\(relStep >= 0 ? "+" : "")\(relStep) sign=\(directionSign) " +
-            "side=\(side) centerTickIndex=\(centerTickIndex) " +
-            "filledRange=\(filledRange) filledRel=\(sampleRelative)"
+            "[DIALDBG] angleRaw=\(String(format: "%.2f", rotationDegrees)) " +
+            "angleNorm=\(String(format: "%.2f", normalizedAngle)) " +
+            "offsetStepsSigned=\(clampedSteps >= 0 ? "+" : "")\(clampedSteps) " +
+            "offsetMin=\(offsetMinutes >= 0 ? "+" : "")\(offsetMinutes) sign=\(directionSign) side=\(side) " +
+            "firstFilled=\(firstFilled) lastFilled=\(lastFilled) " +
+            "filledRange=\(filledRange) centerTickIndex=\(centerTickIndex)"
         )
     }
 

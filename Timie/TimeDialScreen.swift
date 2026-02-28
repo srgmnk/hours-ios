@@ -13,6 +13,14 @@ struct TimeDialScreen: View {
     private let resetNotificationHaptics = UINotificationFeedbackGenerator()
     private let maxHapticsPerSecond = 20.0
 
+    private var hapticsEnabled: Bool {
+        #if targetEnvironment(simulator)
+        false
+        #else
+        true
+        #endif
+    }
+
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
@@ -38,6 +46,7 @@ struct TimeDialScreen: View {
                         resetSignal: viewModel.resetSignal,
                         onDragBegan: {
                             viewModel.beginDialDrag()
+                            if hapticsEnabled { stepHaptics.prepare() }
                         },
                         onDragChanged: { rotation in
                             viewModel.updateDialRotation(rotation)
@@ -63,7 +72,7 @@ struct TimeDialScreen: View {
                 .allowsHitTesting(true)
             }
             .onAppear {
-                stepHaptics.prepare()
+                if hapticsEnabled { stepHaptics.prepare() }
                 resetNotificationHaptics.prepare()
                 lastHapticStep = viewModel.dialSteps
             }
@@ -76,11 +85,13 @@ struct TimeDialScreen: View {
                     return
                 }
 
-                stepHaptics.selectionChanged()
+                if hapticsEnabled {
+                    stepHaptics.selectionChanged()
+                }
 
                 lastHapticStep = newStep
                 lastHapticTime = now
-                stepHaptics.prepare()
+                if hapticsEnabled { stepHaptics.prepare() }
             }
         }
         .ignoresSafeArea()
