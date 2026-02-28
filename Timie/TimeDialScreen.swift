@@ -1,30 +1,10 @@
 import SwiftUI
 import UIKit
-#if DEBUG
-import QuartzCore
-#endif
-
-#if DEBUG
-private final class ThrottledLogger {
-    private var last: CFTimeInterval = 0
-    let minInterval: CFTimeInterval
-
-    init(minInterval: CFTimeInterval = 0.1) {
-        self.minInterval = minInterval
-    }
-
-    func log(_ message: @autoclosure () -> String) {
-        let now = CACurrentMediaTime()
-        guard now - last >= minInterval else { return }
-        last = now
-        print(message())
-    }
-}
-#endif
 
 struct TimeDialScreen: View {
     @StateObject private var viewModel = TimeDialViewModel()
     @State private var lastSnappedOffsetSteps = 0
+    @State private var isDraggingSessionActive = false
 
     private let dialSize: CGFloat = 512
     private let dialCenterYOffset: CGFloat = 125
@@ -33,9 +13,6 @@ struct TimeDialScreen: View {
     private let bigTickHaptics = UIImpactFeedbackGenerator(style: .heavy)
     private let zeroTickHaptics = UINotificationFeedbackGenerator()
     private let resetNotificationHaptics = UINotificationFeedbackGenerator()
-    #if DEBUG
-    private static let dialLog = ThrottledLogger(minInterval: 0.15)
-    #endif
 
     private var hapticsEnabled: Bool {
         #if targetEnvironment(simulator)
@@ -69,19 +46,21 @@ struct TimeDialScreen: View {
                         stepIndex: viewModel.dialSteps,
                         resetSignal: viewModel.resetSignal,
                         onDragBegan: {
+                            guard !isDraggingSessionActive else { return }
+                            isDraggingSessionActive = true
                             viewModel.beginDialDrag()
                             prepareDialHaptics()
-                            debugLog("[DIAL] drag begin")
+                            log("[DIAL] drag begin")
                         },
                         onDragChanged: { rotation in
                             viewModel.updateDialRotation(rotation)
                         },
                         onDragEnded: { currentRotation, predictedRotation in
+                            if isDraggingSessionActive {
+                                log("[DIAL] drag end")
+                            }
+                            isDraggingSessionActive = false
                             viewModel.endDialDrag(currentRotation: currentRotation, predictedRotation: predictedRotation)
-                            debugLog(
-                                "[DIAL] drag end current=\(String(format: "%.2f", currentRotation)) " +
-                                "predicted=\(String(format: "%.2f", predictedRotation))"
-                            )
                         }
                     )
                     .position(x: geo.size.width / 2, y: dialOverlayHeight + dialCenterYOffset)
@@ -115,7 +94,7 @@ struct TimeDialScreen: View {
                 } else {
                     tickType = "small"
                 }
-                debugLog(
+                log(
                     "[DIAL] snappedStep \(lastSnappedOffsetSteps) -> \(newStep) " +
                     "kind=\(tickType)"
                 )
@@ -175,9 +154,9 @@ struct TimeDialScreen: View {
         zeroTickHaptics.prepare()
     }
 
-    private func debugLog(_ message: @autoclosure () -> String) {
+    private func log(_ message: String) {
         #if DEBUG
-        Self.dialLog.log(message())
+        print(message)
         #endif
     }
 }
