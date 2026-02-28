@@ -33,10 +33,10 @@ struct CityCardView: View {
         let minutes = totalMinutes % 60
 
         if minutes == 0 {
-            return "\(sign)\(hours)h from Current"
+            return "\(sign)\(hours)h"
         }
 
-        return String(format: "%@%d:%02d from Current", sign, hours, minutes)
+        return String(format: "%@%d:%02d", sign, hours, minutes)
     }
 
     private var dayNightSymbol: String {

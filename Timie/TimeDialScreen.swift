@@ -1276,22 +1276,24 @@ final class ReorderController: NSObject, ObservableObject {
     private func startObservingScrollView(_ scrollView: UIScrollView) {
         guard ENABLE_SCROLL_PROBE else { return }
 
-        scrollBoundsObservation = scrollView.observe(\.bounds, options: [.new]) { [weak self] _, change in
-            guard let self, let bounds = change.newValue else { return }
+        scrollBoundsObservation = scrollView.observe(\.bounds, options: [.new]) { _, change in
+            guard let bounds = change.newValue else { return }
             print("[SCROLLPROBE] boundsHeight=\(Int(bounds.height.rounded()))")
         }
 
-        scrollContentSizeObservation = scrollView.observe(\.contentSize, options: [.new]) { [weak self] _, change in
-            guard let self, let contentSize = change.newValue else { return }
+        scrollContentSizeObservation = scrollView.observe(\.contentSize, options: [.new]) { _, change in
+            guard let contentSize = change.newValue else { return }
             print("[SCROLLPROBE] contentHeight=\(Int(contentSize.height.rounded()))")
         }
 
         scrollContentOffsetObservation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] _, change in
             guard let self, let offset = change.newValue else { return }
             let now = CACurrentMediaTime()
-            guard now - self.lastScrollProbeOffsetLogTimestamp > 0.20 else { return }
-            self.lastScrollProbeOffsetLogTimestamp = now
-            print("[SCROLLPROBE] contentOffsetY=\(Int(offset.y.rounded()))")
+            Task { @MainActor in
+                guard now - self.lastScrollProbeOffsetLogTimestamp > 0.20 else { return }
+                self.lastScrollProbeOffsetLogTimestamp = now
+                print("[SCROLLPROBE] contentOffsetY=\(Int(offset.y.rounded()))")
+            }
         }
     }
 
