@@ -9,10 +9,8 @@ struct TimeDialScreen: View {
     private let dialSize: CGFloat = 512
     private let dialCenterYOffset: CGFloat = 125
     private let dialOverlayHeight: CGFloat = 260
-    private let minorHaptics = UIImpactFeedbackGenerator(style: .medium)
-    private let majorHaptics = UIImpactFeedbackGenerator(style: .heavy)
+    private let stepHaptics = UISelectionFeedbackGenerator()
     private let resetNotificationHaptics = UINotificationFeedbackGenerator()
-    private let reorderNotificationHaptics = UINotificationFeedbackGenerator()
     private let maxHapticsPerSecond = 20.0
 
     var body: some View {
@@ -21,13 +19,13 @@ struct TimeDialScreen: View {
                 Color(red: 238.0 / 255.0, green: 238.0 / 255.0, blue: 238.0 / 255.0)
                     .ignoresSafeArea()
 
-                CityReorderListView(
-                    viewModel: viewModel,
-                    rows: cityRows,
-                    onReorderStart: handleReorderStart,
-                    onMove: handleReorderMove,
-                    onDelete: handleDelete
+                CityCardView(
+                    cityName: viewModel.currentCity.name,
+                    selectedInstant: viewModel.selectedInstant,
+                    timeZoneID: viewModel.currentCity.timeZoneID,
+                    cardBackgroundColor: Color(red: 0xF7 / 255, green: 0xF7 / 255, blue: 0xF7 / 255)
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
 
                 ProgressiveBottomBlurOverlay(height: 180)
                     .allowsHitTesting(false)
@@ -65,10 +63,8 @@ struct TimeDialScreen: View {
                 .allowsHitTesting(true)
             }
             .onAppear {
-                minorHaptics.prepare()
-                majorHaptics.prepare()
+                stepHaptics.prepare()
                 resetNotificationHaptics.prepare()
-                reorderNotificationHaptics.prepare()
                 lastHapticStep = viewModel.dialSteps
             }
             .onChange(of: viewModel.dialSteps) { _, newStep in
@@ -80,18 +76,11 @@ struct TimeDialScreen: View {
                     return
                 }
 
-                let absoluteStep = abs(newStep)
-                let isMajorTick = absoluteStep != 0 && absoluteStep.isMultiple(of: 6)
-                if isMajorTick {
-                    majorHaptics.impactOccurred()
-                } else {
-                    minorHaptics.impactOccurred()
-                }
+                stepHaptics.selectionChanged()
 
                 lastHapticStep = newStep
                 lastHapticTime = now
-                minorHaptics.prepare()
-                majorHaptics.prepare()
+                stepHaptics.prepare()
             }
         }
         .ignoresSafeArea()
@@ -118,47 +107,5 @@ struct TimeDialScreen: View {
         }
         resetNotificationHaptics.notificationOccurred(.success)
         resetNotificationHaptics.prepare()
-    }
-
-    private var cityRows: [CityListRow] {
-        Array(viewModel.cities.enumerated()).map { index, city in
-            CityListRow(
-                id: city.id,
-                index: index,
-                cityName: city.name,
-                timeZoneID: city.timeZoneID,
-                isCurrent: viewModel.isCurrentCity(city)
-            )
-        }
-    }
-
-    private func handleReorderStart(_ cityID: String) {
-        let cityName = viewModel.cities.first(where: { $0.id == cityID })?.name ?? cityID
-        logReorder("start reorder cityID=\(cityID) city=\(cityName)")
-        minorHaptics.impactOccurred()
-        minorHaptics.prepare()
-    }
-
-    private func handleReorderMove(from sourceIndex: Int, to destinationIndex: Int) {
-        let oldCurrent = viewModel.currentCityID
-        logReorder("onMove from=\(sourceIndex) to=\(destinationIndex)")
-        viewModel.moveCity(from: sourceIndex, to: destinationIndex)
-
-        let top3 = viewModel.cities.prefix(3).map { "\($0.id)|\($0.name)" }.joined(separator: ", ")
-        logReorder("final top3=[\(top3)]")
-
-        if oldCurrent != viewModel.currentCityID {
-            logReorder("current changed old=\(oldCurrent) new=\(viewModel.currentCityID)")
-            reorderNotificationHaptics.notificationOccurred(.success)
-            reorderNotificationHaptics.prepare()
-        }
-    }
-
-    private func handleDelete(_ cityID: String) {
-        viewModel.deleteCity(id: cityID)
-    }
-
-    private func logReorder(_ message: String) {
-        print("[REORDER] \(message)")
     }
 }

@@ -21,18 +21,18 @@ struct TimeDialView: View {
 
     @State private var dragStartAngle: Double?
     @State private var startRotationDegrees = 0.0
-    @State private var isDragging = false
-    @State private var lastDebugLogAt = Date.distantPast
-    @State private var lastDebugSnapshot: DebugSnapshot?
 
     var body: some View {
-        let filledProgressColor = Color(red: 232.0 / 255.0, green: 83.0 / 255.0, blue: 52.0 / 255.0)
         let defaultTickColor = Color.black.opacity(0.2)
         let relStep = stepIndex
+        let offsetMinutes = relStep * Self.minutesPerStep
+        let fillColor = offsetMinutes < 0
+            ? Color(red: 232.0 / 255.0, green: 83.0 / 255.0, blue: 52.0 / 255.0)
+            : .black
         let centerTickIndex = Self.activeCenterTickIndex(rotationDegrees: rotationDegrees)
-        let progressTickSequence = Self.progressTickSequence(relStep: relStep, centerTickIndex: centerTickIndex)
-        let progressTicks = Set(progressTickSequence)
-        let filledBoundaryTickIndex = progressTickSequence.last
+        let filledRelSteps = Self.filledRelativeSteps(relStep: relStep)
+        let filledSet = Set(filledRelSteps)
+        let filledBoundaryRelStep = filledRelSteps.last
 
         ZStack {
             Canvas { context, size in
@@ -45,47 +45,41 @@ struct TimeDialView: View {
 
                 let degreesPerTick = 360.0 / Double(Self.tickCount)
 
+                // Layer 1: base ticks in gray.
                 for tick in 0..<Self.tickCount {
-                    let isMajor = tick.isMultiple(of: Self.majorTickInterval)
-                    let angleDegrees = (Double(tick) * degreesPerTick) + rotationDegrees - 90
-                    let angle = angleDegrees * .pi / 180
-                    let length = isMajor ? majorLength : minorLength
-                    let baseWidth = isMajor ? majorWidth : minorWidth
-                    let width: CGFloat = tick == centerTickIndex ? 2 : baseWidth
-                    let tickColor: Color
-                    if progressTicks.contains(tick) {
-                        tickColor = filledProgressColor
-                    } else {
-                        tickColor = defaultTickColor
+                    let tickPath = Self.tickPath(
+                        tick: tick,
+                        centerTickIndex: centerTickIndex,
+                        center: center,
+                        outerRadius: outerRadius,
+                        minorLength: minorLength,
+                        majorLength: majorLength,
+                        minorWidth: minorWidth,
+                        majorWidth: majorWidth,
+                        degreesPerTick: degreesPerTick,
+                        rotationDegrees: rotationDegrees
+                    )
+                    context.fill(tickPath, with: .color(defaultTickColor))
+                }
+
+                // Layer 2: filled ticks overpainted with sign-based color.
+                if offsetMinutes != 0 {
+                    for rel in filledSet {
+                        let tick = Self.tickIndex(for: rel, centerTickIndex: centerTickIndex)
+                        let tickPath = Self.tickPath(
+                            tick: tick,
+                            centerTickIndex: centerTickIndex,
+                            center: center,
+                            outerRadius: outerRadius,
+                            minorLength: minorLength,
+                            majorLength: majorLength,
+                            minorWidth: minorWidth,
+                            majorWidth: majorWidth,
+                            degreesPerTick: degreesPerTick,
+                            rotationDegrees: rotationDegrees
+                        )
+                        context.fill(tickPath, with: .color(fillColor))
                     }
-
-                    let start = CGPoint(
-                        x: center.x + cos(angle) * (outerRadius - length),
-                        y: center.y + sin(angle) * (outerRadius - length)
-                    )
-                    let end = CGPoint(
-                        x: center.x + cos(angle) * outerRadius,
-                        y: center.y + sin(angle) * outerRadius
-                    )
-                    let mid = CGPoint(
-                        x: (start.x + end.x) / 2,
-                        y: (start.y + end.y) / 2
-                    )
-
-                    let localRect = CGRect(
-                        x: -length / 2,
-                        y: -width / 2,
-                        width: length,
-                        height: width
-                    )
-                    let roundedTick = Path(
-                        roundedRect: localRect,
-                        cornerSize: CGSize(width: 1, height: 1)
-                    )
-                    let transform = CGAffineTransform(translationX: mid.x, y: mid.y)
-                        .rotated(by: angle)
-                    let tickPath = roundedTick.applying(transform)
-                    context.fill(tickPath, with: .color(tickColor))
                 }
             }
             .frame(width: diameter, height: diameter)
@@ -93,8 +87,10 @@ struct TimeDialView: View {
             if ENABLE_DIAL_TICK_DEBUG {
                 debugTickOverlay(
                     centerTickIndex: centerTickIndex,
-                    filledTicks: progressTicks,
-                    boundaryTickIndex: filledBoundaryTickIndex
+                    filledTicks: filledSet,
+                    boundaryTickIndex: filledBoundaryRelStep.map { rel in
+                        Self.tickIndex(for: rel, centerTickIndex: centerTickIndex)
+                    }
                 )
             }
         }
@@ -103,7 +99,6 @@ struct TimeDialView: View {
         .gesture(
             DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    isDragging = true
                     onDragBegan()
                     let center = CGPoint(x: diameter / 2, y: diameter / 2)
                     let angle = Self.angleDegrees(point: value.location, center: center)
@@ -129,22 +124,19 @@ struct TimeDialView: View {
 
                     dragStartAngle = nil
                     startRotationDegrees = currentRotation
-                    isDragging = false
                     onDragEnded(currentRotation, predictedRotation)
                 }
         )
         .onChange(of: resetSignal) { _, _ in
             dragStartAngle = nil
             startRotationDegrees = rotationDegrees
-            isDragging = false
-            lastDebugSnapshot = nil
         }
-        .onChange(of: rotationDegrees) { _, _ in
+        .onChange(of: stepIndex) { oldStep, newStep in
             guard ENABLE_DIAL_TICK_DEBUG else { return }
+            guard newStep != oldStep else { return }
             logDialDebugIfNeeded(
                 centerTickIndex: centerTickIndex,
-                relStep: relStep,
-                filledTicksInOrder: progressTickSequence
+                relStep: newStep
             )
         }
     }
@@ -167,19 +159,15 @@ struct TimeDialView: View {
         ((centerTickIndex - relativeStep) % tickCount + tickCount) % tickCount
     }
 
-    private static func progressTickSequence(relStep: Int, centerTickIndex: Int) -> [Int] {
+    private static func filledRelativeSteps(relStep: Int) -> [Int] {
         guard relStep != 0 else { return [] }
         let clampedRelStep = relStep > 0 ? min(relStep, tickCount - 1) : max(relStep, -(tickCount - 1))
 
         if clampedRelStep > 0 {
-            return (0...clampedRelStep).map { rel in
-                tickIndex(for: rel, centerTickIndex: centerTickIndex)
-            }
+            return Array(0...clampedRelStep)
         }
 
-        return (clampedRelStep...0).map { rel in
-            tickIndex(for: rel, centerTickIndex: centerTickIndex)
-        }
+        return Array(clampedRelStep...0)
     }
 
     private static func activeCenterTickIndex(rotationDegrees: Double) -> Int {
@@ -266,57 +254,72 @@ struct TimeDialView: View {
         }
     }
 
-    private func logDialDebugIfNeeded(centerTickIndex: Int, relStep: Int, filledTicksInOrder: [Int]) {
-        guard isDragging else { return }
-
+    private func logDialDebugIfNeeded(centerTickIndex: Int, relStep: Int) {
         let offsetMinutes = relStep * Self.minutesPerStep
         let directionSign = relStep == 0 ? 0 : (relStep > 0 ? 1 : -1)
-        let stepsFilled = abs(relStep)
-        let firstFilledTickIndex = filledTicksInOrder.first ?? -1
-        let lastFilledTickIndex = filledTicksInOrder.last ?? -1
+        let filledRelSteps = Self.filledRelativeSteps(relStep: relStep)
         let side = relStep == 0 ? "NONE" : (relStep > 0 ? "LEFT" : "RIGHT")
         let filledRange: String = {
             guard relStep != 0 else { return "[]" }
             if relStep > 0 { return "[0...+\(relStep)]" }
             return "[\(relStep)...0]"
         }()
-        let snapshot = DebugSnapshot(
-            offsetMinutes: offsetMinutes,
-            stepsFilled: stepsFilled,
-            directionSign: directionSign,
-            firstFilledTickIndex: firstFilledTickIndex,
-            lastFilledTickIndex: lastFilledTickIndex
-        )
-        guard snapshot != lastDebugSnapshot else { return }
-
-        let now = Date()
-        guard now.timeIntervalSince(lastDebugLogAt) >= 0.1 else { return }
-
-        let normalizedAngle = ((rotationDegrees.truncatingRemainder(dividingBy: 360)) + 360)
-            .truncatingRemainder(dividingBy: 360)
-        let angleDelta = rotationDegrees
-        let sampleRelative = filledTicksInOrder.prefix(12).map { tick in
-            Self.relativeStep(from: centerTickIndex, to: tick)
-        }
+        let sampleRelative = Array(filledRelSteps.prefix(12))
 
         print(
-            "[DIALDBG] angleRaw=\(String(format: "%.2f", rotationDegrees)) " +
-            "angleNorm=\(String(format: "%.2f", normalizedAngle)) " +
-            "angleDelta=\(String(format: "%.2f", angleDelta)) offsetSteps=\(relStep) " +
-            "offsetMin=\(offsetMinutes) sign=\(directionSign) steps=\(stepsFilled) side=\(side) " +
-            "center=0 first=\(firstFilledTickIndex) last=\(lastFilledTickIndex) " +
+            "[DIALDBG] offsetMin=\(offsetMinutes >= 0 ? "+" : "")\(offsetMinutes) " +
+            "offsetSteps=\(relStep >= 0 ? "+" : "")\(relStep) sign=\(directionSign) " +
+            "side=\(side) centerTickIndex=\(centerTickIndex) " +
             "filledRange=\(filledRange) filledRel=\(sampleRelative)"
         )
-
-        lastDebugSnapshot = snapshot
-        lastDebugLogAt = now
     }
 
-    private struct DebugSnapshot: Equatable {
-        let offsetMinutes: Int
-        let stepsFilled: Int
-        let directionSign: Int
-        let firstFilledTickIndex: Int
-        let lastFilledTickIndex: Int
+    private static func tickPath(
+        tick: Int,
+        centerTickIndex: Int,
+        center: CGPoint,
+        outerRadius: CGFloat,
+        minorLength: CGFloat,
+        majorLength: CGFloat,
+        minorWidth: CGFloat,
+        majorWidth: CGFloat,
+        degreesPerTick: Double,
+        rotationDegrees: Double
+    ) -> Path {
+        let isMajor = tick.isMultiple(of: Self.majorTickInterval)
+        let angleDegrees = (Double(tick) * degreesPerTick) + rotationDegrees - 90
+        let angleRadians = angleDegrees * .pi / 180
+        let angle = CGFloat(angleRadians)
+        let cosAngle = CGFloat(cos(angleRadians))
+        let sinAngle = CGFloat(sin(angleRadians))
+        let length = isMajor ? majorLength : minorLength
+        let baseWidth = isMajor ? majorWidth : minorWidth
+        let width: CGFloat = tick == centerTickIndex ? 2 : baseWidth
+
+        let start = CGPoint(
+            x: center.x + cosAngle * (outerRadius - length),
+            y: center.y + sinAngle * (outerRadius - length)
+        )
+        let end = CGPoint(
+            x: center.x + cosAngle * outerRadius,
+            y: center.y + sinAngle * outerRadius
+        )
+        let mid = CGPoint(
+            x: (start.x + end.x) / 2,
+            y: (start.y + end.y) / 2
+        )
+        let localRect = CGRect(
+            x: -length / 2,
+            y: -width / 2,
+            width: length,
+            height: width
+        )
+        let roundedTick = Path(
+            roundedRect: localRect,
+            cornerSize: CGSize(width: 1, height: 1)
+        )
+        let transform = CGAffineTransform(translationX: mid.x, y: mid.y)
+            .rotated(by: angle)
+        return roundedTick.applying(transform)
     }
 }
