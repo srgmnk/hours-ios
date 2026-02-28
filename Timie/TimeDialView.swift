@@ -44,13 +44,13 @@ struct TimeDialView: View {
                 for tick in 0..<Self.tickCount {
                     let tickPath = Self.tickPath(
                         tick: tick,
-                        centerTickIndex: centerTickIndex,
                         center: center,
                         outerRadius: outerRadius,
                         minorLength: minorLength,
                         majorLength: majorLength,
                         minorWidth: minorWidth,
                         majorWidth: majorWidth,
+                        lineWidth: 1,
                         degreesPerTick: degreesPerTick,
                         rotationDegrees: rotationDegrees
                     )
@@ -63,13 +63,13 @@ struct TimeDialView: View {
                         guard filledSet.contains(tick) else { continue }
                         let tickPath = Self.tickPath(
                             tick: tick,
-                            centerTickIndex: centerTickIndex,
                             center: center,
                             outerRadius: outerRadius,
                             minorLength: minorLength,
                             majorLength: majorLength,
                             minorWidth: minorWidth,
                             majorWidth: majorWidth,
+                            lineWidth: 2,
                             degreesPerTick: degreesPerTick,
                             rotationDegrees: rotationDegrees
                         )
@@ -178,13 +178,13 @@ struct TimeDialView: View {
 
     private static func tickPath(
         tick: Int,
-        centerTickIndex: Int,
         center: CGPoint,
         outerRadius: CGFloat,
         minorLength: CGFloat,
         majorLength: CGFloat,
         minorWidth: CGFloat,
         majorWidth: CGFloat,
+        lineWidth: CGFloat,
         degreesPerTick: Double,
         rotationDegrees: Double
     ) -> Path {
@@ -195,8 +195,8 @@ struct TimeDialView: View {
         let cosAngle = CGFloat(cos(angleRadians))
         let sinAngle = CGFloat(sin(angleRadians))
         let length = isMajor ? majorLength : minorLength
-        let baseWidth = isMajor ? majorWidth : minorWidth
-        let width: CGFloat = tick == centerTickIndex ? 2 : baseWidth
+        let _ = isMajor ? majorWidth : minorWidth
+        let width = lineWidth
 
         let start = CGPoint(
             x: center.x + cosAngle * (outerRadius - length),
