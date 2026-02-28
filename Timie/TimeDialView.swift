@@ -27,9 +27,9 @@ struct TimeDialView: View {
         let defaultTickColor = Color.black.opacity(0.2)
         let offsetStepsSigned = stepIndex
         let offsetMinutes = offsetStepsSigned * Self.minutesPerStep
-        let fillColor = offsetStepsSigned < 0
-            ? Color(red: 232.0 / 255.0, green: 83.0 / 255.0, blue: 52.0 / 255.0)
-            : .black
+        let futureFillColor = Color(red: 0xE8 / 255, green: 0x53 / 255, blue: 0x34 / 255)
+        let pastFillColor = Color(red: 0x22 / 255, green: 0x22 / 255, blue: 0x22 / 255)
+        let fillColor = offsetStepsSigned > 0 ? futureFillColor : pastFillColor
         let centerTickIndex = Self.activeCenterTickIndex(rotationDegrees: rotationDegrees)
         let filledSet = Self.filledTickIndices(
             centerTickIndex: centerTickIndex,
@@ -187,14 +187,13 @@ struct TimeDialView: View {
     ) -> Bool {
         let clamped = clampedOffsetSteps(offsetStepsSigned)
         guard clamped != 0 else { return false }
+        let tickRelIndex = relativeStep(from: centerTickIndex, to: tick)
 
         if clamped > 0 {
-            // Future (+): fill left side from center up to +N.
-            return leftDistance(from: centerTickIndex, to: tick) <= clamped
+            return tickRelIndex >= 0 && tickRelIndex <= clamped
         }
 
-        // Past (-): fill right side from center down to -N.
-        return rightDistance(from: centerTickIndex, to: tick) <= abs(clamped)
+        return tickRelIndex <= 0 && tickRelIndex >= clamped
     }
 
     private static func filledTickIndices(centerTickIndex: Int, offsetStepsSigned: Int) -> Set<Int> {
@@ -293,6 +292,7 @@ struct TimeDialView: View {
         let offsetMinutes = clampedSteps * Self.minutesPerStep
         let directionSign = clampedSteps == 0 ? 0 : (clampedSteps > 0 ? 1 : -1)
         let side = clampedSteps == 0 ? "NONE" : (clampedSteps > 0 ? "LEFT" : "RIGHT")
+        let fillColorName = clampedSteps == 0 ? "none" : (clampedSteps > 0 ? "orange" : "black")
         let normalizedAngle = ((rotationDegrees.truncatingRemainder(dividingBy: 360)) + 360)
             .truncatingRemainder(dividingBy: 360)
         let filledRange: String = {
@@ -309,7 +309,7 @@ struct TimeDialView: View {
             "offsetStepsSigned=\(clampedSteps >= 0 ? "+" : "")\(clampedSteps) " +
             "offsetMin=\(offsetMinutes >= 0 ? "+" : "")\(offsetMinutes) sign=\(directionSign) side=\(side) " +
             "firstFilled=\(firstFilled) lastFilled=\(lastFilled) " +
-            "filledRange=\(filledRange) centerTickIndex=\(centerTickIndex)"
+            "filledRange=\(filledRange) fillColor=\(fillColorName) centerTickIndex=\(centerTickIndex)"
         )
     }
 
