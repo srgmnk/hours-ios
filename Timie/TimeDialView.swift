@@ -44,6 +44,7 @@ struct TimeDialView: View {
 
                 // Layer 1: base ticks in gray.
                 for tick in 0..<Self.tickCount {
+                    let baseLineWidth: CGFloat = (tick == centerTickIndex) ? 2 : 1
                     let tickPath = Self.tickPath(
                         tick: tick,
                         center: center,
@@ -53,7 +54,7 @@ struct TimeDialView: View {
                         hourLength: hourLength,
                         minorWidth: minorWidth,
                         majorWidth: majorWidth,
-                        lineWidth: 1,
+                        lineWidth: baseLineWidth,
                         degreesPerTick: degreesPerTick,
                         rotationDegrees: rotationDegrees
                     )
@@ -64,6 +65,7 @@ struct TimeDialView: View {
                 if offsetMinutes != 0 {
                     for tick in 0..<Self.tickCount {
                         guard filledSet.contains(tick) else { continue }
+                        let activeLineWidth: CGFloat = (tick == centerTickIndex || tick.isMultiple(of: Self.hourTickInterval)) ? 2 : 1
                         let tickPath = Self.tickPath(
                             tick: tick,
                             center: center,
@@ -73,7 +75,7 @@ struct TimeDialView: View {
                             hourLength: hourLength,
                             minorWidth: minorWidth,
                             majorWidth: majorWidth,
-                            lineWidth: 2,
+                            lineWidth: activeLineWidth,
                             degreesPerTick: degreesPerTick,
                             rotationDegrees: rotationDegrees
                         )
