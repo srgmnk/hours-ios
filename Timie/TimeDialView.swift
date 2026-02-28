@@ -162,25 +162,24 @@ struct TimeDialView: View {
         return delta
     }
 
+    private static func tickIndex(for relativeStep: Int, centerTickIndex: Int) -> Int {
+        // Positive relStep must be on the visual LEFT side of center.
+        ((centerTickIndex - relativeStep) % tickCount + tickCount) % tickCount
+    }
+
     private static func progressTickSequence(relStep: Int, centerTickIndex: Int) -> [Int] {
         guard relStep != 0 else { return [] }
-        let steps = min(abs(relStep), tickCount - 1)
-        let direction = relStep > 0 ? 1 : -1
-        var indices: [Int] = []
-        indices.reserveCapacity(steps)
+        let clampedRelStep = relStep > 0 ? min(relStep, tickCount - 1) : max(relStep, -(tickCount - 1))
 
-        for offset in 1...steps {
-            if direction > 0 {
-                let clockwiseDistance = offset
-                let tick = (centerTickIndex + clockwiseDistance) % tickCount
-                indices.append(tick)
-            } else {
-                let counterclockwiseDistance = offset
-                let tick = ((centerTickIndex - counterclockwiseDistance) % tickCount + tickCount) % tickCount
-                indices.append(tick)
+        if clampedRelStep > 0 {
+            return (0...clampedRelStep).map { rel in
+                tickIndex(for: rel, centerTickIndex: centerTickIndex)
             }
         }
-        return indices
+
+        return (clampedRelStep...0).map { rel in
+            tickIndex(for: rel, centerTickIndex: centerTickIndex)
+        }
     }
 
     private static func activeCenterTickIndex(rotationDegrees: Double) -> Int {
@@ -190,14 +189,10 @@ struct TimeDialView: View {
     }
 
     private static func relativeStep(from centerTickIndex: Int, to tickIndex: Int) -> Int {
-        let clockwiseDistance = (tickIndex - centerTickIndex + tickCount) % tickCount
-        let counterclockwiseDistance = (centerTickIndex - tickIndex + tickCount) % tickCount
-
-        if clockwiseDistance == 0 { return 0 }
-        if clockwiseDistance <= counterclockwiseDistance {
-            return clockwiseDistance
-        }
-        return -counterclockwiseDistance
+        let half = tickCount / 2
+        var delta = centerTickIndex - tickIndex
+        delta = ((delta + half) % tickCount + tickCount) % tickCount - half
+        return delta
     }
 
     @ViewBuilder
@@ -279,10 +274,11 @@ struct TimeDialView: View {
         let stepsFilled = abs(relStep)
         let firstFilledTickIndex = filledTicksInOrder.first ?? -1
         let lastFilledTickIndex = filledTicksInOrder.last ?? -1
+        let side = relStep == 0 ? "NONE" : (relStep > 0 ? "LEFT" : "RIGHT")
         let filledRange: String = {
             guard relStep != 0 else { return "[]" }
-            if relStep > 0 { return "[+1...+\(relStep)]" }
-            return "[-1...\(relStep)]"
+            if relStep > 0 { return "[0...+\(relStep)]" }
+            return "[\(relStep)...0]"
         }()
         let snapshot = DebugSnapshot(
             offsetMinutes: offsetMinutes,
@@ -306,8 +302,8 @@ struct TimeDialView: View {
         print(
             "[DIALDBG] angleRaw=\(String(format: "%.2f", rotationDegrees)) " +
             "angleNorm=\(String(format: "%.2f", normalizedAngle)) " +
-            "angleDelta=\(String(format: "%.2f", angleDelta)) relStep=\(relStep) " +
-            "offsetMin=\(offsetMinutes) sign=\(directionSign) steps=\(stepsFilled) " +
+            "angleDelta=\(String(format: "%.2f", angleDelta)) offsetSteps=\(relStep) " +
+            "offsetMin=\(offsetMinutes) sign=\(directionSign) steps=\(stepsFilled) side=\(side) " +
             "center=0 first=\(firstFilledTickIndex) last=\(lastFilledTickIndex) " +
             "filledRange=\(filledRange) filledRel=\(sampleRelative)"
         )
