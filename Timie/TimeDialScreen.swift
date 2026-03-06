@@ -12,6 +12,10 @@ struct TimeDialScreen: View {
     private let dialCenterYOffset: CGFloat = 125
     private let dialOverlayHeight: CGFloat = 260
     private let cityListDesiredBottomGap: CGFloat = 130
+    private let topButtonTopOffset: CGFloat = 60
+    private let topButtonBarHeight: CGFloat = 48
+    private let topButtonBarTopPadding: CGFloat = 1
+    private let logoHeight: CGFloat = 15
     private let smallTickHaptics = UIImpactFeedbackGenerator(style: .light)
     private let bigTickHaptics = UIImpactFeedbackGenerator(style: .heavy)
     private let zeroTickHaptics = UINotificationFeedbackGenerator()
@@ -34,7 +38,8 @@ struct TimeDialScreen: View {
                 CityListReorderUIKitView(
                     cities: $viewModel.cities,
                     selectedInstant: viewModel.selectedInstant,
-                    topSafeAreaInset: geo.safeAreaInsets.top,
+                    // Keep scroll content layout independent from pinned button offset.
+                    topSafeAreaInset: topButtonBarTopPadding + ((topButtonBarHeight - logoHeight) / 2),
                     // Desired visual stop gap from physical screen bottom.
                     bottomContentInset: cityListDesiredBottomGap,
                     cardBackgroundColor: Color(red: 0xF7 / 255, green: 0xF7 / 255, blue: 0xF7 / 255)
@@ -52,6 +57,12 @@ struct TimeDialScreen: View {
                                 .preference(key: DialOverlayHeightPreferenceKey.self, value: proxy.size.height)
                         }
                     )
+            }
+            .overlay(alignment: .top) {
+                topButtonBar()
+                    .padding(.top, topButtonTopOffset)
+                    .ignoresSafeArea(edges: .top)
+                    .zIndex(10)
             }
             .onPreferenceChange(DialOverlayHeightPreferenceKey.self) { measuredHeight in
                 guard measuredHeight > 0 else { return }
@@ -81,6 +92,84 @@ struct TimeDialScreen: View {
             }
         }
         .ignoresSafeArea()
+    }
+
+    private func topButtonBar() -> some View {
+        let buttonStroke = Color.white.opacity(0.4)
+        let buttonForeground = Color.black.opacity(0.90)
+
+        return HStack {
+            Button(action: {
+                // TODO: Add action
+            }) {
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.capsule.fill")
+                        .font(.system(size: 16, weight: .medium))
+                    Text("Add")
+                        .font(.system(size: 16, weight: .medium))
+                        .tracking(-0.64)
+                }
+                .foregroundStyle(buttonForeground)
+                .frame(width: 87, height: topButtonBarHeight)
+                .contentShape(Capsule())
+                .background(.thinMaterial, in: Capsule())
+                .overlay(
+                    Capsule()
+                        .strokeBorder(Color.white.opacity(0.28), lineWidth: 0.6)
+                )
+                .overlay {
+                    Capsule()
+                        .fill(Color.white.opacity(0))
+                }
+                .overlay(alignment: .top) {
+                    Capsule()
+                        .stroke(Color.white.opacity(0.45), lineWidth: 1)
+                        .blur(radius: 0.2)
+                        .mask(
+                            LinearGradient(
+                                colors: [.white, .clear],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
+                }
+                .shadow(color: .white.opacity(0.18), radius: 1, x: 0, y: -1)
+                .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 6)
+            }
+            .buttonStyle(.plain)
+
+            Spacer(minLength: 0)
+
+            Button(action: {
+                // TODO: More action
+            }) {
+                Image(systemName: "ellipsis")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(buttonForeground)
+                    .frame(width: topButtonBarHeight, height: topButtonBarHeight)
+                    .background(.thinMaterial, in: Circle())
+                    .overlay {
+                        Circle()
+                            .fill(Color.white.opacity(0.0))
+                    }
+                    .overlay(alignment: .top) {
+                        Circle()
+                            .stroke(Color.white.opacity(0.45), lineWidth: 1)
+                            .blur(radius: 0.2)
+                            .mask(
+                                LinearGradient(
+                                    colors: [.white, .clear],
+                                    startPoint: .top,
+                                    endPoint: .bottom
+                                )
+                            )
+                    }
+                    .shadow(color: .white.opacity(0.18), radius: 1, x: 0, y: -1)
+                    .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 6)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 20)
     }
 
     private func dialOverlay(in geo: GeometryProxy) -> some View {
@@ -246,6 +335,10 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
 
 private final class CityListReorderViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
     private static var didPrintBottomInsetProbe = false
+    private static let logoHeaderReuseIdentifier = "CityListLogoHeaderView"
+    private static let logoHeight: CGFloat = 15
+    private static let logoWidth: CGFloat = 49
+    private static let logoBottomSpacing: CGFloat = 33
 
     private struct PendingExternalState {
         let cities: [City]
@@ -269,6 +362,11 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         collectionView.register(
             CityListReorderCollectionCell.self,
             forCellWithReuseIdentifier: CityListReorderCollectionCell.reuseIdentifier
+        )
+        collectionView.register(
+            CityListLogoHeaderView.self,
+            forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
+            withReuseIdentifier: Self.logoHeaderReuseIdentifier
         )
         return collectionView
     }()
@@ -355,7 +453,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     }
 
     private func applySectionInsets() {
-        flowLayout.sectionInset = UIEdgeInsets(top: topInset, left: 16, bottom: 0, right: 16)
+        flowLayout.sectionInset = UIEdgeInsets(top: 0, left: 16, bottom: 0, right: 16)
         applyDeterministicBottomInset()
     }
 
@@ -550,6 +648,88 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         minimumLineSpacingForSectionAt section: Int
     ) -> CGFloat {
         8
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        layout collectionViewLayout: UICollectionViewLayout,
+        referenceSizeForHeaderInSection section: Int
+    ) -> CGSize {
+        CGSize(
+            width: max(0, collectionView.bounds.width - 32),
+            height: topInset + Self.logoHeight + Self.logoBottomSpacing
+        )
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        viewForSupplementaryElementOfKind kind: String,
+        at indexPath: IndexPath
+    ) -> UICollectionReusableView {
+        guard kind == UICollectionView.elementKindSectionHeader else {
+            return UICollectionReusableView()
+        }
+        guard let header = collectionView.dequeueReusableSupplementaryView(
+            ofKind: kind,
+            withReuseIdentifier: Self.logoHeaderReuseIdentifier,
+            for: indexPath
+        ) as? CityListLogoHeaderView else {
+            return UICollectionReusableView()
+        }
+
+        header.configure(
+            topInset: topInset,
+            logoHeight: Self.logoHeight,
+            logoWidth: Self.logoWidth
+        )
+
+        return header
+    }
+}
+
+private final class CityListLogoHeaderView: UICollectionReusableView {
+    private let imageView: UIImageView = {
+        let imageView = UIImageView(image: UIImage(named: "HoursLogo"))
+        imageView.contentMode = .scaleAspectFit
+        imageView.backgroundColor = .clear
+        imageView.isUserInteractionEnabled = false
+        return imageView
+    }()
+
+    private var topConstraint: NSLayoutConstraint?
+    private var heightConstraint: NSLayoutConstraint?
+    private var widthConstraint: NSLayoutConstraint?
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        addSubview(imageView)
+        imageView.translatesAutoresizingMaskIntoConstraints = false
+
+        let topConstraint = imageView.topAnchor.constraint(equalTo: topAnchor)
+        let heightConstraint = imageView.heightAnchor.constraint(equalToConstant: 15)
+        let widthConstraint = imageView.widthAnchor.constraint(equalToConstant: 49)
+        NSLayoutConstraint.activate([
+            topConstraint,
+            heightConstraint,
+            widthConstraint,
+            imageView.centerXAnchor.constraint(equalTo: centerXAnchor)
+        ])
+
+        self.topConstraint = topConstraint
+        self.heightConstraint = heightConstraint
+        self.widthConstraint = widthConstraint
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(topInset: CGFloat, logoHeight: CGFloat, logoWidth: CGFloat) {
+        topConstraint?.constant = topInset
+        heightConstraint?.constant = logoHeight
+        widthConstraint?.constant = logoWidth
     }
 }
 
