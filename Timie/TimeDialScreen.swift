@@ -7,6 +7,7 @@ struct TimeDialScreen: View {
     @State private var lastSnappedOffsetSteps = 0
     @State private var isDraggingSessionActive = false
     @State private var dialHeight: CGFloat = 260
+    @State private var isAddCitySheetPresented = false
 
     private let dialSize: CGFloat = 512
     private let dialCenterYOffset: CGFloat = 125
@@ -92,84 +93,59 @@ struct TimeDialScreen: View {
             }
         }
         .ignoresSafeArea()
+        .sheet(isPresented: $isAddCitySheetPresented) {
+            AddCitySheetView(
+                existingTimeZoneIDs: Set(viewModel.cities.map(\.timeZoneID))
+            ) { selectedItem in
+                appendCityIfNeeded(selectedItem)
+            }
+        }
     }
 
     private func topButtonBar() -> some View {
-        let buttonStroke = Color.white.opacity(0.4)
-        let buttonForeground = Color.black.opacity(0.90)
+        GlassEffectContainer(spacing: 10) {
+            HStack {
+                Button(action: {
+                    let generator = UIImpactFeedbackGenerator(style: .medium)
+                    generator.impactOccurred()
+                    isAddCitySheetPresented = true
+                }) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.capsule.fill")
+                            .font(.system(size: 16, weight: .medium))
+                        Text("Add")
+                            .font(.system(size: 16, weight: .medium))
+                            .tracking(-0.64)
+                    }
+                    .foregroundStyle(.primary.opacity(0.90))
+                    .frame(width: 87, height: topButtonBarHeight)
+                    .glassEffect(.clear, in: Capsule())
+                    .overlay(
+                        Capsule()
+                            .fill(.black.opacity(0.07))
+                    )
+                }
+                .buttonStyle(.plain)
 
-        return HStack {
-            Button(action: {
-                // TODO: Add action
-            }) {
-                HStack(spacing: 4) {
-                    Image(systemName: "plus.capsule.fill")
+                Spacer(minLength: 0)
+
+                Button(action: {
+                    // TODO: More action
+                }) {
+                    Image(systemName: "ellipsis")
                         .font(.system(size: 16, weight: .medium))
-                    Text("Add")
-                        .font(.system(size: 16, weight: .medium))
-                        .tracking(-0.64)
-                }
-                .foregroundStyle(buttonForeground)
-                .frame(width: 87, height: topButtonBarHeight)
-                .contentShape(Capsule())
-                .background(.thinMaterial, in: Capsule())
-                .overlay(
-                    Capsule()
-                        .strokeBorder(Color.white.opacity(0.28), lineWidth: 0.6)
-                )
-                .overlay {
-                    Capsule()
-                        .fill(Color.white.opacity(0))
-                }
-                .overlay(alignment: .top) {
-                    Capsule()
-                        .stroke(Color.white.opacity(0.45), lineWidth: 1)
-                        .blur(radius: 0.2)
-                        .mask(
-                            LinearGradient(
-                                colors: [.white, .clear],
-                                startPoint: .top,
-                                endPoint: .bottom
-                            )
+                        .foregroundStyle(.primary.opacity(0.90))
+                        .frame(width: topButtonBarHeight, height: topButtonBarHeight)
+                        .glassEffect(.clear, in: Capsule())
+                        .overlay(
+                            Capsule()
+                                .fill(.black.opacity(0.07))
                         )
                 }
-                .shadow(color: .white.opacity(0.18), radius: 1, x: 0, y: -1)
-                .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 6)
+                .buttonStyle(.plain)
             }
-            .buttonStyle(.plain)
-
-            Spacer(minLength: 0)
-
-            Button(action: {
-                // TODO: More action
-            }) {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundStyle(buttonForeground)
-                    .frame(width: topButtonBarHeight, height: topButtonBarHeight)
-                    .background(.thinMaterial, in: Circle())
-                    .overlay {
-                        Circle()
-                            .fill(Color.white.opacity(0.0))
-                    }
-                    .overlay(alignment: .top) {
-                        Circle()
-                            .stroke(Color.white.opacity(0.45), lineWidth: 1)
-                            .blur(radius: 0.2)
-                            .mask(
-                                LinearGradient(
-                                    colors: [.white, .clear],
-                                    startPoint: .top,
-                                    endPoint: .bottom
-                                )
-                            )
-                    }
-                    .shadow(color: .white.opacity(0.18), radius: 1, x: 0, y: -1)
-                    .shadow(color: .black.opacity(0.08), radius: 14, x: 0, y: 6)
-            }
-            .buttonStyle(.plain)
+            .padding(.horizontal, 20)
         }
-        .padding(.horizontal, 20)
     }
 
     private func dialOverlay(in geo: GeometryProxy) -> some View {
@@ -267,6 +243,13 @@ struct TimeDialScreen: View {
         #if DEBUG
         print(message)
         #endif
+    }
+
+    private func appendCityIfNeeded(_ selectedItem: CitySearchItem) {
+        guard !viewModel.cities.contains(where: { $0.timeZoneID == selectedItem.timeZoneIdentifier }) else {
+            return
+        }
+        viewModel.cities.append(selectedItem.asCity)
     }
 }
 
