@@ -3,18 +3,19 @@ import UIKit
 
 struct SettingsSheetView: View {
     @Environment(\.dismiss) private var dismiss
-
-    private let settingsRows = [
-        (title: "Time format", value: "System"),
-        (title: "Appearance", value: "System")
-    ]
+    @AppStorage(AppTimeFormatPreference.storageKey) private var timeFormatPreferenceRawValue = AppTimeFormatPreference.system.rawValue
 
     private let linkRows = [
         (title: "Rate on the App Store", trailing: "ver 1.0.1"),
         (title: "Privacy Policy", trailing: nil as String?),
         (title: "Terms & Conditions", trailing: nil as String?),
-        (title: "Contact Me", trailing: nil as String?)
+        (title: "Contact Me", trailing: "Any suggestions?")
     ]
+
+    private var selectedTimeFormatPreference: AppTimeFormatPreference {
+        get { AppTimeFormatPreference.from(rawValue: timeFormatPreferenceRawValue) }
+        set { timeFormatPreferenceRawValue = newValue.rawValue }
+    }
 
     var body: some View {
         NavigationStack {
@@ -82,10 +83,15 @@ struct SettingsSheetView: View {
 
     private var settingsBlock: some View {
         VStack(spacing: 2) {
-            ForEach(Array(settingsRows.enumerated()), id: \.offset) { index, row in
-                SettingsValueRow(title: row.title, value: row.value)
-                    .background(groupedRowBackground(for: index, total: settingsRows.count))
-            }
+            TimeFormatMenuRow(
+                title: "Time format",
+                selectedPreference: selectedTimeFormatPreference,
+                onSelect: { timeFormatPreferenceRawValue = $0.rawValue }
+            )
+            .background(groupedRowBackground(for: 0, total: 2))
+
+            SettingsValueRow(title: "Appearance", value: "System")
+                .background(groupedRowBackground(for: 1, total: 2))
         }
     }
 
@@ -139,6 +145,76 @@ struct SettingsSheetView: View {
             Rectangle()
                 .fill(SheetStyle.groupedRowBackground)
         }
+    }
+}
+
+private struct TimeFormatMenuRow: View {
+    let title: String
+    let selectedPreference: AppTimeFormatPreference
+    let onSelect: (AppTimeFormatPreference) -> Void
+
+    var body: some View {
+        HStack(spacing: 16) {
+            Text(title)
+                .font(.system(size: 16, weight: .regular))
+                .tracking(-0.48)
+                .foregroundStyle(.black)
+
+            Spacer(minLength: 0)
+
+            Menu {
+                ForEach(AppTimeFormatPreference.allCases, id: \.self) { preference in
+                    Button {
+                        onSelect(preference)
+                        triggerNotificationHaptic(.success)
+                    } label: {
+                        if preference == selectedPreference {
+                            Label(preference.displayTitle, systemImage: "checkmark")
+                        } else {
+                            Text(preference.displayTitle)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selectedPreference.displayTitle)
+                        .font(.system(size: 16, weight: .medium))
+                        .tracking(-0.48)
+                        .foregroundStyle(.black)
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.black.opacity(0.3))
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 12)
+                .frame(height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.black.opacity(0.05))
+                )
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    triggerImpactHaptic(.medium)
+                }
+            )
+        }
+        .padding(.leading, 20)
+        .padding(.trailing, 8)
+        .frame(height: 64)
+    }
+
+    private func triggerImpactHaptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
+        let generator = UIImpactFeedbackGenerator(style: style)
+        generator.impactOccurred()
+    }
+
+    private func triggerNotificationHaptic(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(type)
     }
 }
 

@@ -31,7 +31,7 @@ enum CityTimeFormatter {
 
     static func formatTimeComponents(_ instant: Date, in timeZone: TimeZone) -> TimeComponents {
         let locale = Locale.autoupdatingCurrent
-        let uses12HourClock = uses12HourClock(for: locale)
+        let uses12HourClock = resolvedUses12HourClock(for: locale)
         let resolvedFormat = uses12HourClock ? "hh:mm" : "HH:mm"
 
         timeFormatter.locale = locale
@@ -79,5 +79,12 @@ enum CityTimeFormatter {
             locale: locale
         ) ?? ""
         return hourTemplate.contains("a")
+    }
+
+    private static func resolvedUses12HourClock(for locale: Locale) -> Bool {
+        let systemUses12HourClock = uses12HourClock(for: locale)
+        let rawPreference = UserDefaults.standard.string(forKey: AppTimeFormatPreference.storageKey) ?? AppTimeFormatPreference.system.rawValue
+        let preference = AppTimeFormatPreference.from(rawValue: rawPreference)
+        return preference.resolvedUses12HourClock(systemUses12HourClock: systemUses12HourClock)
     }
 }
