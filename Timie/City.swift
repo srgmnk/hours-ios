@@ -9,8 +9,8 @@ struct CanonicalCity: Identifiable, Equatable, Hashable {
         TimeZone(identifier: timeZoneID) ?? .current
     }
 
-    init(name: String, timeZoneID: String) {
-        self.id = timeZoneID
+    init(id: String? = nil, name: String, timeZoneID: String) {
+        self.id = id ?? timeZoneID
         self.name = name
         self.timeZoneID = timeZoneID
     }
@@ -40,16 +40,16 @@ struct City: Identifiable, Equatable {
         self.customDisplayName = customDisplayName
     }
 
-    init(name: String, timeZoneID: String, customDisplayName: String? = nil) {
+    init(name: String, timeZoneID: String, customDisplayName: String? = nil, canonicalID: String? = nil) {
         self.init(
-            canonicalCity: CanonicalCity(name: name, timeZoneID: timeZoneID),
+            canonicalCity: CanonicalCity(id: canonicalID, name: name, timeZoneID: timeZoneID),
             customDisplayName: customDisplayName
         )
     }
 
     // Backward-compatible alias for pre-refactor call sites.
     init(name: String, timeZoneID: String, customName: String?) {
-        self.init(name: name, timeZoneID: timeZoneID, customDisplayName: customName)
+        self.init(name: name, timeZoneID: timeZoneID, customDisplayName: customName, canonicalID: nil)
     }
 
     // Backward-compatible alias for pre-refactor call sites.

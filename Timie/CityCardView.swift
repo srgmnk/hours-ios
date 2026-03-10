@@ -25,6 +25,21 @@ struct CityCardView: View {
         CityTimeFormatter.formatUTCOffsetValue(selectedInstant, in: city.timeZone)
     }
 
+    private var shouldShowDSTTag: Bool {
+        guard !isZeroOffsetReferenceCity else { return false }
+        return city.timeZone.isDaylightSavingTime(for: selectedInstant)
+    }
+
+    private var isZeroOffsetReferenceCity: Bool {
+        let canonicalID = city.id.lowercased()
+        if canonicalID == "custom.utc" || canonicalID == "custom.gmt" {
+            return true
+        }
+
+        let timeZoneID = city.timeZoneID.lowercased()
+        return timeZoneID == "etc/utc" || timeZoneID == "utc" || timeZoneID == "gmt"
+    }
+
     private var deltaDisplay: (isPositive: Bool, text: String)? {
         guard !isCurrent else { return nil }
         let cityOffsetSeconds = city.timeZone.secondsFromGMT(for: selectedInstant)
@@ -135,15 +150,31 @@ struct CityCardView: View {
 
                     Spacer(minLength: 0)
 
-                    HStack(spacing: 0) {
-                        Text("UTC")
-                            .font(.system(size: 14, weight: .regular))
-                            .tracking(-0.42)
-                            .foregroundStyle(secondaryTextColor)
-                        Text(utcOffsetValueText)
-                            .font(.system(size: 14, weight: .regular))
-                            .tracking(-0.42)
-                            .foregroundStyle(secondaryTextColor)
+                    HStack(spacing: 4) {
+                        HStack(spacing: 0) {
+                            Text("UTC")
+                                .font(.system(size: 14, weight: .regular))
+                                .tracking(-0.42)
+                                .foregroundStyle(secondaryTextColor)
+                            Text(utcOffsetValueText)
+                                .font(.system(size: 14, weight: .regular))
+                                .tracking(-0.42)
+                                .foregroundStyle(secondaryTextColor)
+                        }
+
+                        if shouldShowDSTTag {
+                            Text("DST")
+                                .font(.system(size: 10, weight: .bold, design: .rounded))
+                                .tracking(-0.9)
+                                .foregroundStyle(Color.black.opacity(0.2))
+                                .padding(.horizontal, 5)
+                                .padding(.bottom, 0.5)
+                                .frame(height: 17)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                        .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                                )
+                        }
                     }
                 }
                 .padding(.horizontal, 20)

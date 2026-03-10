@@ -16,13 +16,18 @@ final class CitySearchProvider {
 
     private let indexedLocalItems: [IndexedLocalItem]
     private let cityCountryToTimeZone: [String: String]
+    private let zeroOffsetReferenceItems: [CitySearchItem]
 
     private let localResultLimit = 40
     private let mergedResultLimit = 60
     private let minimumGoodLocalResultCount = 5
 
     private init(bundle: Bundle = .main) {
-        let localItems = Self.loadLocalItems(bundle: bundle)
+        zeroOffsetReferenceItems = Self.zeroOffsetReferenceItemsSeed
+
+        let loadedItems = Self.loadLocalItems(bundle: bundle)
+        let specialIDs = Set(zeroOffsetReferenceItems.map(\.id))
+        let localItems = zeroOffsetReferenceItems + loadedItems.filter { !specialIDs.contains($0.id) }
 
         indexedLocalItems = localItems.enumerated().map { index, item in
             IndexedLocalItem(
@@ -41,6 +46,10 @@ final class CitySearchProvider {
             lookup[key] = indexed.item.timeZoneIdentifier
         }
         cityCountryToTimeZone = lookup
+    }
+
+    func referenceItemsForZeroState() -> [CitySearchItem] {
+        zeroOffsetReferenceItems
     }
 
     func localResults(
@@ -407,6 +416,27 @@ final class CitySearchProvider {
             country: "Australia",
             timeZoneIdentifier: "Australia/Sydney",
             aliases: ["syd"]
+        )
+    ]
+
+    private static let zeroOffsetReferenceItemsSeed: [CitySearchItem] = [
+        CitySearchItem(
+            id: "custom.utc",
+            city: "UTC",
+            country: "",
+            timeZoneIdentifier: "Etc/UTC",
+            aliases: ["coordinated universal time", "zulu", "utc+0", "utc 0"],
+            canonicalID: "custom.utc",
+            specialReferenceKind: .utc
+        ),
+        CitySearchItem(
+            id: "custom.gmt",
+            city: "GMT",
+            country: "",
+            timeZoneIdentifier: "GMT",
+            aliases: ["greenwich mean time", "gmt+0", "gmt 0"],
+            canonicalID: "custom.gmt",
+            specialReferenceKind: .gmt
         )
     ]
 }

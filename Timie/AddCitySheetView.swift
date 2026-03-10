@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct AddCitySheetView: View {
-    let existingTimeZoneIDs: Set<String>
+    let existingCanonicalIDs: Set<String>
     let onSelect: (CitySearchItem) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -13,12 +13,20 @@ struct AddCitySheetView: View {
     @StateObject private var currentLocationProvider = CurrentLocationCityProvider()
 
     private struct DisplayResult: Identifiable {
-        let item: CitySearchItem
+        let item: CitySearchItem?
         let isCurrentLocation: Bool
 
         var id: String {
-            "\(isCurrentLocation ? "current-location" : "city-result")-\(item.id)"
+            if isCurrentLocation {
+                return "current-location-row"
+            }
+            return "city-result-\(item?.canonicalIdentity ?? "unknown")"
         }
+    }
+
+    private struct DisplaySection: Identifiable {
+        let id: String
+        let results: [DisplayResult]
     }
 
     private var trimmedQuery: String {
@@ -33,85 +41,120 @@ struct AddCitySheetView: View {
         !trimmedQuery.isEmpty && results.isEmpty
     }
 
-    private var displayedResults: [DisplayResult] {
+    private var displayedSections: [DisplaySection] {
         let mappedResults = results.map { DisplayResult(item: $0, isCurrentLocation: false) }
 
-        guard trimmedQuery.isEmpty, let locationItem = currentLocationProvider.currentCityItem else {
-            return mappedResults
+        guard trimmedQuery.isEmpty else {
+            return [DisplaySection(id: "search-results", results: mappedResults)]
         }
 
-        var displayed: [DisplayResult] = []
-        displayed.append(DisplayResult(item: locationItem, isCurrentLocation: true))
+        var primaryResults: [DisplayResult] = []
+        if currentLocationProvider.permissionState == .authorized {
+            primaryResults.append(
+                DisplayResult(item: currentLocationProvider.currentCityItem, isCurrentLocation: true)
+            )
+        }
+        let referenceItems = CitySearchProvider.shared.referenceItemsForZeroState()
+        primaryResults.append(contentsOf: referenceItems.map { DisplayResult(item: $0, isCurrentLocation: false) })
 
-        var seenTimeZones = Set<String>([locationItem.timeZoneIdentifier])
-        var seenCityCountry = Set<String>([cityCountryKey(for: locationItem)])
-
-        for mapped in mappedResults {
-            if seenTimeZones.contains(mapped.item.timeZoneIdentifier) { continue }
-
-            let cityCountry = cityCountryKey(for: mapped.item)
-            if seenCityCountry.contains(cityCountry) { continue }
-
-            displayed.append(mapped)
-            seenTimeZones.insert(mapped.item.timeZoneIdentifier)
-            seenCityCountry.insert(cityCountry)
+        let primaryCanonicalIDs = Set(referenceItems.map(\.canonicalIdentity))
+        var seenSecondaryCanonicalIDs = Set<String>()
+        let secondaryResults = mappedResults.filter { mapped in
+            guard let canonicalID = mapped.item?.canonicalIdentity else { return false }
+            guard !primaryCanonicalIDs.contains(canonicalID) else { return false }
+            return seenSecondaryCanonicalIDs.insert(canonicalID).inserted
         }
 
-        return displayed
+        var sections: [DisplaySection] = []
+        if !primaryResults.isEmpty {
+            sections.append(DisplaySection(id: "zero-state-primary", results: primaryResults))
+        }
+        if !secondaryResults.isEmpty {
+            sections.append(DisplaySection(id: "zero-state-secondary", results: secondaryResults))
+        }
+
+        return sections
     }
 
     var body: some View {
         let referenceDate = Date()
-        let visibleResults = displayedResults
+        let visibleSections = displayedSections
 
         NavigationStack {
             List {
-                ForEach(Array(visibleResults.enumerated()), id: \.element.id) { index, displayResult in
-                    let item = displayResult.item
-                    let isCurrentLocationRow = displayResult.isCurrentLocation
-                    let isAlreadyAdded = existingTimeZoneIDs.contains(item.timeZoneIdentifier)
+                ForEach(Array(visibleSections.enumerated()), id: \.element.id) { sectionIndex, section in
+                    ForEach(Array(section.results.enumerated()), id: \.element.id) { rowIndex, displayResult in
+                        let item = displayResult.item
+                        let isCurrentLocationRow = displayResult.isCurrentLocation
+                        let isLocationLoadingRow = isCurrentLocationRow && item == nil
+                        let isAlreadyAdded = item.map { existingCanonicalIDs.contains($0.canonicalIdentity) } ?? false
 
-                    Button {
-                        searchTask?.cancel()
-                        guard !isAlreadyAdded else {
+                        Button {
+                            searchTask?.cancel()
+
+                            guard let item else { return }
+
+                            guard !isAlreadyAdded else {
+                                dismiss()
+                                return
+                            }
+
+                            let generator = UINotificationFeedbackGenerator()
+                            generator.notificationOccurred(.success)
                             dismiss()
-                            return
+                            onSelect(item)
+                        } label: {
+                            HStack(alignment: .center, spacing: 12) {
+                                Text(rowPrimaryText(for: item, isCurrentLocationLoadingRow: isLocationLoadingRow))
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                    .opacity(isLocationLoadingRow ? 0.2 : 1)
+                                    .modifier(LocationPlaceholderShimmer(isActive: isLocationLoadingRow))
+
+                                Spacer(minLength: 8)
+
+                                CitySearchRowLabel(
+                                    kind: rowLabelKind(
+                                        for: item,
+                                        isCurrentLocationRow: isCurrentLocationRow,
+                                        isAlreadyAdded: isAlreadyAdded,
+                                        referenceDate: referenceDate
+                                    )
+                                )
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 22)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(rowBackground(for: rowIndex, total: section.results.count))
+                            .padding(.bottom, rowIndex == section.results.count - 1 ? 0 : 2)
                         }
-
-                        let generator = UINotificationFeedbackGenerator()
-                        generator.notificationOccurred(.success)
-                        dismiss()
-                        onSelect(item)
-                    } label: {
-                        HStack(alignment: .center, spacing: 12) {
-                            Text("\(item.city), \(item.country)")
-                                .font(.system(size: 16, weight: .medium))
-                                .foregroundStyle(.primary)
-                                .lineLimit(1)
-
-                            Spacer(minLength: 8)
-
-                            CitySearchRowLabel(
-                                kind: isCurrentLocationRow
-                                    ? .myLocation
-                                    : (isAlreadyAdded
-                                        ? .added
-                                        : .utc(utcOffsetText(for: item.timeZoneIdentifier, referenceDate: referenceDate)))
-                            )
-                        }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 22)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(rowBackground(for: index, total: visibleResults.count))
-                        .padding(.bottom, index == visibleResults.count - 1 ? 0 : 2)
+                        .buttonStyle(.plain)
+                        .contentShape(Rectangle())
+                        .listRowInsets(EdgeInsets())
+                        .listRowSeparator(.hidden)
+                        .listRowBackground(Color.clear)
                     }
-                    .buttonStyle(.plain)
-                    .contentShape(Rectangle())
-                    .listRowInsets(EdgeInsets())
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
+
+                    if sectionIndex < visibleSections.count - 1 {
+                        let nextSection = visibleSections[sectionIndex + 1]
+                        if section.id == "zero-state-primary" && nextSection.id == "zero-state-secondary" {
+                            popularCitiesLabelRow
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                        } else {
+                            Color.clear
+                                .frame(height: 8)
+                                .environment(\.defaultMinListRowHeight, 8)
+                                .listRowInsets(EdgeInsets())
+                                .listRowSeparator(.hidden)
+                                .listRowBackground(Color.clear)
+                        }
+                    }
                 }
             }
+            .environment(\.defaultMinListRowHeight, 0)
             .listStyle(.plain)
             .padding(.horizontal, 8)
             .navigationTitle("Add City")
@@ -169,6 +212,20 @@ struct AddCitySheetView: View {
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 16)
+    }
+
+    private var popularCitiesLabelRow: some View {
+        HStack {
+            Text("Popular cities")
+                .font(.system(size: 14))
+                .tracking(-0.42)
+                .foregroundStyle(Color.black.opacity(0.2))
+            Spacer()
+        }
+        .padding(.horizontal, 20)
+        .padding(.top, 16)
+        .padding(.bottom, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func performSearch(for query: String) {
@@ -241,15 +298,78 @@ struct AddCitySheetView: View {
         return "UTC\(sign)\(hours):" + String(format: "%02d", minutes)
     }
 
-    private func cityCountryKey(for item: CitySearchItem) -> String {
-        "\(normalized(item.city))|\(normalized(item.country))"
+    private func rowPrimaryText(for item: CitySearchItem?, isCurrentLocationLoadingRow: Bool) -> String {
+        if isCurrentLocationLoadingRow {
+            return "My location is ..."
+        }
+
+        guard let item else { return "" }
+        if let specialReferenceKind = item.specialReferenceKind {
+            return specialReferenceKind.descriptiveName
+        }
+        if item.country.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return item.city
+        }
+        return "\(item.city), \(item.country)"
     }
 
-    private func normalized(_ value: String) -> String {
-        value
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+    private func rowLabelKind(
+        for item: CitySearchItem?,
+        isCurrentLocationRow: Bool,
+        isAlreadyAdded: Bool,
+        referenceDate: Date
+    ) -> CitySearchRowLabel.Kind {
+        if isCurrentLocationRow {
+            if item == nil {
+                return .locationLoading
+            }
+            return .myLocation
+        }
+        guard let item else {
+            return .utc("UTC")
+        }
+        if isAlreadyAdded {
+            return .added
+        }
+        if item.specialReferenceKind != nil {
+            return .utc(item.city)
+        }
+        return .utc(utcOffsetText(for: item.timeZoneIdentifier, referenceDate: referenceDate))
+    }
+}
+
+private struct LocationPlaceholderShimmer: ViewModifier {
+    let isActive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if isActive {
+                    GeometryReader { proxy in
+                        let width = max(proxy.size.width, 1)
+                        TimelineView(.animation) { timeline in
+                            let duration = 1.4
+                            let progress = timeline.date.timeIntervalSinceReferenceDate
+                                .truncatingRemainder(dividingBy: duration) / duration
+                            let offset = CGFloat(progress) * width * 2.2 - width * 1.1
+
+                            LinearGradient(
+                                colors: [
+                                    .clear,
+                                    Color.white.opacity(0.35),
+                                    .clear
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: width * 0.85, height: proxy.size.height)
+                            .offset(x: offset)
+                        }
+                    }
+                    .mask(content)
+                    .allowsHitTesting(false)
+                }
+            }
     }
 }
 
@@ -296,8 +416,11 @@ private struct AddCityEmptyStateView: View {
 
 private struct CitySearchRowLabel: View {
     enum Kind {
+        case none
+        case locationLoading
         case myLocation
         case added
+        case referenceDescription(String)
         case utc(String)
     }
 
@@ -305,10 +428,16 @@ private struct CitySearchRowLabel: View {
 
     private var text: String {
         switch kind {
+        case .none:
+            return ""
+        case .locationLoading:
+            return ""
         case .myLocation:
             return "My location"
         case .added:
             return "Added"
+        case .referenceDescription(let text):
+            return text
         case .utc(let offset):
             return offset
         }
@@ -316,47 +445,80 @@ private struct CitySearchRowLabel: View {
 
     private var textColor: Color {
         switch kind {
+        case .none:
+            return .clear
+        case .locationLoading:
+            return Color.black.opacity(0.3)
         case .added:
             return Color(red: 0x56 / 255, green: 0x82 / 255, blue: 0x22 / 255)
-        case .myLocation, .utc:
+        case .myLocation, .referenceDescription, .utc:
             return Color.black.opacity(0.3)
         }
     }
 
     private var backgroundColor: Color {
         switch kind {
+        case .none:
+            return .clear
+        case .locationLoading:
+            return .clear
         case .added:
             return Color(red: 0xE8 / 255, green: 0xEC / 255, blue: 0xE3 / 255)
-        case .myLocation, .utc:
+        case .myLocation, .referenceDescription, .utc:
             return .clear
         }
     }
 
     private var borderColor: Color {
         switch kind {
+        case .none:
+            return .clear
+        case .locationLoading:
+            return Color.black.opacity(0.05)
         case .added:
             return .clear
-        case .myLocation, .utc:
+        case .myLocation, .referenceDescription, .utc:
             return Color.black.opacity(0.05)
         }
     }
 
+    @ViewBuilder
     var body: some View {
-        Text(text)
-            .font(.system(size: 14, weight: .regular))
-            .tracking(-0.42)
-            .foregroundStyle(textColor)
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .frame(height: 28)
-            .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(backgroundColor)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(borderColor, lineWidth: 1)
-            )
+        if case .none = kind {
+            EmptyView()
+        } else if case .locationLoading = kind {
+            Image(systemName: "rays")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(textColor)
+                .lineLimit(1)
+                .padding(.horizontal, 8)
+                .frame(height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(backgroundColor)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(borderColor, lineWidth: 1)
+                )
+        } else {
+            Text(text)
+                .font(.system(size: 14, weight: .regular))
+                .tracking(-0.42)
+                .foregroundStyle(textColor)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 8)
+                .frame(height: 28)
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(backgroundColor)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .stroke(borderColor, lineWidth: 1)
+                )
+        }
     }
 }
 

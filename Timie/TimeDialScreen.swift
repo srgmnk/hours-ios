@@ -5,6 +5,7 @@ import Combine
 struct TimeDialScreen: View {
     @StateObject private var viewModel = TimeDialViewModel()
     @StateObject private var currentLocationProvider = CurrentLocationCityProvider()
+    @Environment(\.scenePhase) private var scenePhase
     @State private var lastSnappedOffsetSteps = 0
     @State private var isDraggingSessionActive = false
     @State private var dialHeight: CGFloat = 260
@@ -108,9 +109,11 @@ struct TimeDialScreen: View {
             }
         }
         .ignoresSafeArea()
-        .sheet(isPresented: $isAddCitySheetPresented) {
+        .sheet(isPresented: $isAddCitySheetPresented, onDismiss: {
+            currentLocationProvider.requestCurrentCity()
+        }) {
             AddCitySheetView(
-                existingTimeZoneIDs: Set(viewModel.cities.map(\.timeZoneID))
+                existingCanonicalIDs: Set(viewModel.cities.map(\.id))
             ) { selectedItem in
                 appendCityIfNeeded(selectedItem)
             }
@@ -121,6 +124,11 @@ struct TimeDialScreen: View {
         .sheet(item: $cityBeingRenamed) { city in
             ChangeCityNameSheetView(city: city) { customName in
                 applyCustomDisplayName(customName, toCityID: city.id)
+            }
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                currentLocationProvider.requestCurrentCity()
             }
         }
     }
@@ -271,7 +279,7 @@ struct TimeDialScreen: View {
     }
 
     private func appendCityIfNeeded(_ selectedItem: CitySearchItem) {
-        guard !viewModel.cities.contains(where: { $0.timeZoneID == selectedItem.timeZoneIdentifier }) else {
+        guard !viewModel.cities.contains(where: { $0.id == selectedItem.canonicalIdentity }) else {
             return
         }
         viewModel.cities.append(selectedItem.asCity)
@@ -572,22 +580,34 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         guard let userCurrentLocationItem else { return nil }
         guard !citiesLocal.isEmpty else { return nil }
 
+        let currentCanonicalID = userCurrentLocationItem.canonicalIdentity
         let normalizedCurrentCity = normalized(userCurrentLocationItem.city)
-        let currentTimeZoneID = userCurrentLocationItem.timeZoneIdentifier
+        let currentTimeZoneID = userCurrentLocationItem.timeZoneIdentifier.lowercased()
+
+        if let canonicalMatchIndex = citiesLocal.firstIndex(where: {
+            !$0.isZeroOffsetReferenceCity &&
+            $0.id == currentCanonicalID
+        }) {
+            return canonicalMatchIndex
+        }
 
         if let exactMatchIndex = citiesLocal.firstIndex(where: {
-            $0.timeZoneID == currentTimeZoneID && normalized($0.name) == normalizedCurrentCity
+            !$0.isZeroOffsetReferenceCity &&
+            $0.timeZoneID.lowercased() == currentTimeZoneID &&
+            normalized($0.name) == normalizedCurrentCity
         }) {
             return exactMatchIndex
         }
 
         if let timeZoneMatchIndex = citiesLocal.firstIndex(where: {
-            $0.timeZoneID == currentTimeZoneID
+            !$0.isZeroOffsetReferenceCity &&
+            $0.timeZoneID.lowercased() == currentTimeZoneID
         }) {
             return timeZoneMatchIndex
         }
 
         if let cityNameMatchIndex = citiesLocal.firstIndex(where: {
+            !$0.isZeroOffsetReferenceCity &&
             normalized($0.name) == normalizedCurrentCity
         }) {
             return cityNameMatchIndex
@@ -865,6 +885,18 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         )
 
         return header
+    }
+}
+
+private extension City {
+    var isZeroOffsetReferenceCity: Bool {
+        let canonicalID = id.lowercased()
+        if canonicalID == "custom.utc" || canonicalID == "custom.gmt" {
+            return true
+        }
+
+        let timeZoneID = timeZoneID.lowercased()
+        return timeZoneID == "etc/utc" || timeZoneID == "utc" || timeZoneID == "gmt"
     }
 }
 

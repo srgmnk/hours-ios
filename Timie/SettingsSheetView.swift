@@ -21,10 +21,10 @@ struct SettingsSheetView: View {
         NavigationStack {
             ScrollView(.vertical, showsIndicators: false) {
                 VStack(spacing: 0) {
-                    heroSection
                     
-                    VStack(spacing: -6) {
-                        Text("Catch the moment")
+                    VStack(spacing: -8) {
+                        Text("Catch")
+                        Text("the moment")
                         Text("in hours")
                     }
                     .font(.system(size: 32, weight: .semibold))
@@ -32,9 +32,12 @@ struct SettingsSheetView: View {
                     .tracking(-0.96)
                     .multilineTextAlignment(.center)
                     .padding(.top, -16)
-                    .padding(.bottom, 56)
+                    
+                    heroSection
+                        .padding(.top, -40)
                     
                     settingsBlock
+                        .padding(.top, 12)
                         .padding(.horizontal, 8)
                     
                     linksBlock
@@ -47,7 +50,7 @@ struct SettingsSheetView: View {
                         .padding(.horizontal, 40)
                         .frame(maxWidth: .infinity)
                 }
-                .padding(.top, -88)
+                .padding(.top, 32)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
             .navigationTitle("Settings")

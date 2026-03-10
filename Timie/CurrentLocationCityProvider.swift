@@ -5,7 +5,14 @@ import MapKit
 
 @MainActor
 final class CurrentLocationCityProvider: NSObject, ObservableObject {
+    enum PermissionState {
+        case notDetermined
+        case authorized
+        case denied
+    }
+
     @Published private(set) var currentCityItem: CitySearchItem?
+    @Published private(set) var permissionState: PermissionState = .notDetermined
 
     private let locationManager = CLLocationManager()
     private var hasRequestedAuthorization = false
@@ -16,9 +23,12 @@ final class CurrentLocationCityProvider: NSObject, ObservableObject {
         super.init()
         locationManager.delegate = self
         locationManager.desiredAccuracy = kCLLocationAccuracyThreeKilometers
+        permissionState = Self.permissionState(from: locationManager.authorizationStatus)
     }
 
     func requestCurrentCity() {
+        permissionState = Self.permissionState(from: locationManager.authorizationStatus)
+
         switch locationManager.authorizationStatus {
         case .notDetermined:
             guard !hasRequestedAuthorization else { return }
@@ -30,6 +40,19 @@ final class CurrentLocationCityProvider: NSObject, ObservableObject {
             currentCityItem = nil
         @unknown default:
             currentCityItem = nil
+        }
+    }
+
+    private static func permissionState(from status: CLAuthorizationStatus) -> PermissionState {
+        switch status {
+        case .authorizedAlways, .authorizedWhenInUse:
+            return .authorized
+        case .denied, .restricted:
+            return .denied
+        case .notDetermined:
+            return .notDetermined
+        @unknown default:
+            return .denied
         }
     }
 
