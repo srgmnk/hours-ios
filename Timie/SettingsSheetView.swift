@@ -121,9 +121,7 @@ struct SettingsSheetView: View {
     
 
     private var heroSection: some View {
-        Image("SettingsTopIllustration")
-            .resizable()
-            .scaledToFit()
+        SettingsParallaxIllustrationView()
             .frame(maxWidth: .infinity)
             .accessibilityHidden(true)
             .frame(maxWidth: .infinity, alignment: .top)
