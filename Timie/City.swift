@@ -1,6 +1,6 @@
 import Foundation
 
-struct CanonicalCity: Identifiable, Equatable, Hashable {
+struct CanonicalCity: Identifiable, Equatable, Hashable, Codable {
     let id: String
     let name: String
     let timeZoneID: String
@@ -16,7 +16,7 @@ struct CanonicalCity: Identifiable, Equatable, Hashable {
     }
 }
 
-struct City: Identifiable, Equatable {
+struct City: Identifiable, Equatable, Codable {
     static let current = City(name: "Bangkok", timeZoneID: "Asia/Bangkok")
 
     let canonicalCity: CanonicalCity

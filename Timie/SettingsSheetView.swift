@@ -62,39 +62,44 @@ struct SettingsSheetView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    
-                    VStack(spacing: -8) {
-                        Text("Catch")
-                        Text("the moment")
-                        Text("in hours")
+            ZStack {
+                SheetStyle.appScreenBackground
+                    .ignoresSafeArea()
+
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: 0) {
+
+                        VStack(spacing: -8) {
+                            Text("Catch")
+                            Text("the moment")
+                            Text("in hours")
+                        }
+                        .font(.system(size: 32, weight: .semibold))
+                        .foregroundStyle(Color(red: 78.0 / 255.0, green: 80.0 / 255.0, blue: 89.0 / 255.0))
+                        .tracking(-0.96)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, -16)
+
+                        heroSection
+                            .padding(.top, -32)
+
+                        settingsBlock
+                            .padding(.top, 12)
+                            .padding(.horizontal, 8)
+
+                        linksBlock
+                            .padding(.top, 8)
+                            .padding(.horizontal, 8)
+
+                        footer
+                            .padding(.top, 56)
+                            .padding(.bottom, 32)
+                            .padding(.horizontal, 40)
+                            .frame(maxWidth: .infinity)
                     }
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundStyle(Color(red: 78.0 / 255.0, green: 80.0 / 255.0, blue: 89.0 / 255.0))
-                    .tracking(-0.96)
-                    .multilineTextAlignment(.center)
-                    .padding(.top, -16)
-                    
-                    heroSection
-                        .padding(.top, -32)
-                    
-                    settingsBlock
-                        .padding(.top, 12)
-                        .padding(.horizontal, 8)
-                    
-                    linksBlock
-                        .padding(.top, 8)
-                        .padding(.horizontal, 8)
-                    
-                    footer
-                        .padding(.top, 56)
-                        .padding(.bottom, 32)
-                        .padding(.horizontal, 40)
-                        .frame(maxWidth: .infinity)
+                    .padding(.top, 32)
+                    .frame(maxWidth: .infinity, alignment: .top)
                 }
-                .padding(.top, 32)
-                .frame(maxWidth: .infinity, alignment: .top)
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -135,21 +140,103 @@ struct SettingsSheetView: View {
     }
 
     private var settingsBlock: some View {
-        VStack(spacing: 2) {
-            TimeFormatMenuRow(
-                title: "Time format",
-                selectedPreference: selectedTimeFormatPreference,
-                onSelect: { timeFormatPreferenceRawValue = $0.rawValue }
-            )
+        VStack(spacing: 1) {
+            timeFormatRow
             .background(groupedRowBackground(for: 0, total: 2))
 
-            SettingsValueRow(title: "Appearance", value: "System")
+            appearanceRow
                 .background(groupedRowBackground(for: 1, total: 2))
         }
     }
 
+    private var timeFormatRow: some View {
+        HStack(spacing: 16) {
+            Text("Time format")
+                .font(.system(size: 16, weight: .regular))
+                .tracking(-0.48)
+                .foregroundStyle(.black)
+
+            Spacer(minLength: 0)
+
+            Menu {
+                ForEach(AppTimeFormatPreference.allCases, id: \.self) { preference in
+                    Button {
+                        timeFormatPreferenceRawValue = preference.rawValue
+                        triggerNotificationHaptic(.success)
+                    } label: {
+                        if preference == selectedTimeFormatPreference {
+                            Label(preference.displayTitle, systemImage: "checkmark")
+                        } else {
+                            Text(preference.displayTitle)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selectedTimeFormatPreference.displayTitle)
+                        .font(.system(size: 16, weight: .medium))
+                        .tracking(-0.48)
+                        .foregroundStyle(.black)
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.black.opacity(0.3))
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 12)
+                .frame(height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white.opacity(0.8))
+                )
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    triggerImpactHaptic(.medium)
+                }
+            )
+        }
+        .padding(.leading, 20)
+        .padding(.trailing, 8)
+        .frame(height: 64)
+    }
+
+    private var appearanceRow: some View {
+        HStack(spacing: 16) {
+            Text("Appearance")
+                .font(.system(size: 16, weight: .regular))
+                .tracking(-0.48)
+                .foregroundStyle(.black)
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 4) {
+                Text("System")
+                    .font(.system(size: 16, weight: .medium))
+                    .tracking(-0.48)
+                    .foregroundStyle(.black)
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Color.black.opacity(0.3))
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, 12)
+            .frame(height: 48)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color.white.opacity(0.8))
+            )
+        }
+        .padding(.leading, 20)
+        .padding(.trailing, 8)
+        .frame(height: 64)
+    }
+
     private var linksBlock: some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 1) {
             ForEach(Array(linkRows.enumerated()), id: \.offset) { index, row in
                 let contactTapHandler: (() -> Void)? = row.title == "Contact Me"
                     ? { presentContactMe() }
@@ -196,6 +283,16 @@ struct SettingsSheetView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private func triggerImpactHaptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
+        let generator = UIImpactFeedbackGenerator(style: style)
+        generator.impactOccurred()
+    }
+
+    private func triggerNotificationHaptic(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(type)
+    }
+
     private var footer: some View {
         VStack(spacing: 20) {
             Image(systemName: "heart.gauge.open")
@@ -237,113 +334,6 @@ struct SettingsSheetView: View {
             Rectangle()
                 .fill(SheetStyle.groupedRowBackground)
         }
-    }
-}
-
-private struct TimeFormatMenuRow: View {
-    let title: String
-    let selectedPreference: AppTimeFormatPreference
-    let onSelect: (AppTimeFormatPreference) -> Void
-
-    var body: some View {
-        HStack(spacing: 16) {
-            Text(title)
-                .font(.system(size: 16, weight: .regular))
-                .tracking(-0.48)
-                .foregroundStyle(.black)
-
-            Spacer(minLength: 0)
-
-            Menu {
-                ForEach(AppTimeFormatPreference.allCases, id: \.self) { preference in
-                    Button {
-                        onSelect(preference)
-                        triggerNotificationHaptic(.success)
-                    } label: {
-                        if preference == selectedPreference {
-                            Label(preference.displayTitle, systemImage: "checkmark")
-                        } else {
-                            Text(preference.displayTitle)
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(selectedPreference.displayTitle)
-                        .font(.system(size: 16, weight: .medium))
-                        .tracking(-0.48)
-                        .foregroundStyle(.black)
-
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.3))
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 12)
-                .frame(height: 48)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.black.opacity(0.03))
-                )
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    triggerImpactHaptic(.medium)
-                }
-            )
-        }
-        .padding(.leading, 20)
-        .padding(.trailing, 8)
-        .frame(height: 64)
-    }
-
-    private func triggerImpactHaptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
-        let generator = UIImpactFeedbackGenerator(style: style)
-        generator.impactOccurred()
-    }
-
-    private func triggerNotificationHaptic(_ type: UINotificationFeedbackGenerator.FeedbackType) {
-        let generator = UINotificationFeedbackGenerator()
-        generator.notificationOccurred(type)
-    }
-}
-
-private struct SettingsValueRow: View {
-    let title: String
-    let value: String
-
-    var body: some View {
-        HStack(spacing: 16) {
-            Text(title)
-                .font(.system(size: 16, weight: .regular))
-                .tracking(-0.48)
-                .foregroundStyle(.black)
-
-            Spacer(minLength: 0)
-
-            HStack(spacing: 4) {
-                Text(value)
-                    .font(.system(size: 16, weight: .medium))
-                    .tracking(-0.48)
-                    .foregroundStyle(.black)
-
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.3))
-            }
-            .padding(.leading, 16)
-            .padding(.trailing, 12)
-            .frame(height: 48)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.black.opacity(0.03))
-            )
-        }
-        .padding(.leading, 20)
-        .padding(.trailing, 8)
-        .frame(height: 64)
     }
 }
 

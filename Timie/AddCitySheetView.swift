@@ -6,6 +6,7 @@ struct AddCitySheetView: View {
     let onSelect: (CitySearchItem) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.displayScale) private var displayScale
     @State private var query = ""
     @State private var results: [CitySearchItem] = []
     @State private var searchTask: Task<Void, Never>?
@@ -41,6 +42,10 @@ struct AddCitySheetView: View {
         !trimmedQuery.isEmpty && results.isEmpty
     }
 
+    private var rowSeparatorHeight: CGFloat {
+        3 / max(displayScale, 1)
+    }
+
     private var displayedSections: [DisplaySection] {
         let mappedResults = results.map { DisplayResult(item: $0, isCurrentLocation: false) }
 
@@ -57,13 +62,9 @@ struct AddCitySheetView: View {
         let referenceItems = CitySearchProvider.shared.referenceItemsForZeroState()
         primaryResults.append(contentsOf: referenceItems.map { DisplayResult(item: $0, isCurrentLocation: false) })
 
-        let primaryCanonicalIDs = Set(referenceItems.map(\.canonicalIdentity))
-        var seenSecondaryCanonicalIDs = Set<String>()
-        let secondaryResults = mappedResults.filter { mapped in
-            guard let canonicalID = mapped.item?.canonicalIdentity else { return false }
-            guard !primaryCanonicalIDs.contains(canonicalID) else { return false }
-            return seenSecondaryCanonicalIDs.insert(canonicalID).inserted
-        }
+        let secondaryResults = CitySearchProvider.shared
+            .popularCitiesForZeroState()
+            .map { DisplayResult(item: $0, isCurrentLocation: false) }
 
         var sections: [DisplaySection] = []
         if !primaryResults.isEmpty {
@@ -127,7 +128,7 @@ struct AddCitySheetView: View {
                             .padding(.vertical, 22)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .background(rowBackground(for: rowIndex, total: section.results.count))
-                            .padding(.bottom, rowIndex == section.results.count - 1 ? 0 : 2)
+                            .padding(.bottom, rowIndex == section.results.count - 1 ? 0 : rowSeparatorHeight)
                         }
                         .buttonStyle(.plain)
                         .contentShape(Rectangle())
@@ -156,6 +157,8 @@ struct AddCitySheetView: View {
             }
             .environment(\.defaultMinListRowHeight, 0)
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(SheetStyle.appScreenBackground)
             .padding(.horizontal, 8)
             .navigationTitle("Add City")
             .navigationBarTitleDisplayMode(.inline)
@@ -179,6 +182,7 @@ struct AddCitySheetView: View {
                 bottomSearchArea
             }
         }
+        .background(SheetStyle.appScreenBackground.ignoresSafeArea())
         .onAppear {
             performSearch(for: query)
             currentLocationProvider.requestCurrentCity()
@@ -387,7 +391,7 @@ private struct AddCityEmptyStateView: View {
                 .resizable()
                 .scaledToFit()
                 .frame(width: 340, height: 262)
-                .padding(.bottom, -40)
+                .padding(.bottom, -80)
 
             VStack(spacing: 10) {
 

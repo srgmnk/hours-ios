@@ -5,6 +5,7 @@ import Combine
 struct TimeDialScreen: View {
     @StateObject private var viewModel = TimeDialViewModel()
     @StateObject private var currentLocationProvider = CurrentLocationCityProvider()
+    @EnvironmentObject private var cityStore: CityStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var lastSnappedOffsetSteps = 0
     @State private var isDraggingSessionActive = false
@@ -38,19 +39,19 @@ struct TimeDialScreen: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
-                Color(red: 238.0 / 255.0, green: 238.0 / 255.0, blue: 238.0 / 255.0)
+                SheetStyle.appScreenBackground
                     .ignoresSafeArea()
 
-                if !viewModel.cities.isEmpty {
+                if !cityStore.cities.isEmpty {
                     CityListReorderUIKitView(
-                        cities: $viewModel.cities,
+                        cities: $cityStore.cities,
                         selectedInstant: viewModel.selectedInstant,
                         userCurrentLocationItem: currentLocationProvider.currentCityItem,
                         // Keep scroll content layout independent from pinned button offset.
                         topSafeAreaInset: topButtonBarTopPadding + ((topButtonBarHeight - logoHeight) / 2),
                         // Desired visual stop gap from physical screen bottom.
                         bottomContentInset: cityListDesiredBottomGap,
-                        cardBackgroundColor: Color(red: 0xF7 / 255, green: 0xF7 / 255, blue: 0xF7 / 255),
+                        cardBackgroundColor: SheetStyle.appCardBackground,
                         onRenameRequested: presentRenameSheet(for:)
                     )
                     .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
@@ -68,7 +69,7 @@ struct TimeDialScreen: View {
                         }
                     )
 
-                if viewModel.cities.isEmpty {
+                if cityStore.cities.isEmpty {
                     MainEmptyStateQuoteView(quote: emptyStateQuoteProvider.currentQuote)
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
                         .allowsHitTesting(false)
@@ -113,7 +114,7 @@ struct TimeDialScreen: View {
             currentLocationProvider.requestCurrentCity()
         }) {
             AddCitySheetView(
-                existingCanonicalIDs: Set(viewModel.cities.map(\.id))
+                existingCanonicalIDs: Set(cityStore.cities.map(\.id))
             ) { selectedItem in
                 appendCityIfNeeded(selectedItem)
             }
@@ -279,10 +280,10 @@ struct TimeDialScreen: View {
     }
 
     private func appendCityIfNeeded(_ selectedItem: CitySearchItem) {
-        guard !viewModel.cities.contains(where: { $0.id == selectedItem.canonicalIdentity }) else {
+        guard !cityStore.cities.contains(where: { $0.id == selectedItem.canonicalIdentity }) else {
             return
         }
-        viewModel.cities.append(selectedItem.asCity)
+        cityStore.cities.append(selectedItem.asCity)
     }
 
     private func presentRenameSheet(for city: City) {
@@ -290,8 +291,8 @@ struct TimeDialScreen: View {
     }
 
     private func applyCustomDisplayName(_ customName: String?, toCityID cityID: City.ID) {
-        guard let index = viewModel.cities.firstIndex(where: { $0.id == cityID }) else { return }
-        viewModel.cities[index].customDisplayName = customName
+        guard let index = cityStore.cities.firstIndex(where: { $0.id == cityID }) else { return }
+        cityStore.cities[index].customDisplayName = customName
     }
 }
 
@@ -439,7 +440,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     private var topInset: CGFloat = 0
     private var bottomInset: CGFloat = 0
     private var userCurrentLocationItem: CitySearchItem?
-    private var cardBackgroundColor: Color = Color(red: 0xF7 / 255, green: 0xF7 / 255, blue: 0xF7 / 255)
+    private var cardBackgroundColor: Color = SheetStyle.appCardBackground
     private var isReordering = false
     private var pendingExternalState: PendingExternalState?
     private var draggedCityID: City.ID?
@@ -1103,7 +1104,7 @@ struct CityListView: View {
                     selectedInstant: selectedInstant,
                     referenceTimeZone: currentCity.timeZone,
                     isCurrent: (reorderController.proposedIndex ?? reorderController.sourceIndex ?? 0) == 0,
-                    cardBackgroundColor: Color(red: 0xF7 / 255, green: 0xF7 / 255, blue: 0xF7 / 255)
+                    cardBackgroundColor: SheetStyle.appCardBackground
                 )
                 .frame(width: initialFrame.width, height: initialFrame.height)
                 .scaleEffect(1.03)
@@ -1233,7 +1234,7 @@ struct CityListView: View {
             selectedInstant: selectedInstant,
             referenceTimeZone: currentCity.timeZone,
             isCurrent: index == 0,
-            cardBackgroundColor: Color(red: 0xF7 / 255, green: 0xF7 / 255, blue: 0xF7 / 255)
+            cardBackgroundColor: SheetStyle.appCardBackground
         )
         // Keep layout stable while this row is represented by the top-level dragged overlay.
         .opacity(isDraggedRow ? 0 : 1)

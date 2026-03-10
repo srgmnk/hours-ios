@@ -5,6 +5,12 @@ import MapKit
 final class CitySearchProvider {
     static let shared = CitySearchProvider()
 
+    private struct PopularCitySeed {
+        let city: String
+        let country: String
+        let timeZoneIdentifier: String
+    }
+
     private struct IndexedLocalItem {
         let item: CitySearchItem
         let order: Int
@@ -17,6 +23,7 @@ final class CitySearchProvider {
     private let indexedLocalItems: [IndexedLocalItem]
     private let cityCountryToTimeZone: [String: String]
     private let zeroOffsetReferenceItems: [CitySearchItem]
+    private let curatedPopularItems: [CitySearchItem]
 
     private let localResultLimit = 40
     private let mergedResultLimit = 60
@@ -29,7 +36,7 @@ final class CitySearchProvider {
         let specialIDs = Set(zeroOffsetReferenceItems.map(\.id))
         let localItems = zeroOffsetReferenceItems + loadedItems.filter { !specialIDs.contains($0.id) }
 
-        indexedLocalItems = localItems.enumerated().map { index, item in
+        let indexedLocalItemsLocal = localItems.enumerated().map { index, item in
             IndexedLocalItem(
                 item: item,
                 order: index,
@@ -39,17 +46,53 @@ final class CitySearchProvider {
                 normalizedTimeZone: Self.normalize(item.timeZoneIdentifier)
             )
         }
+        indexedLocalItems = indexedLocalItemsLocal
 
         var lookup: [String: String] = [:]
-        for indexed in indexedLocalItems {
+        for indexed in indexedLocalItemsLocal {
             let key = Self.cityCountryKey(city: indexed.normalizedCity, country: indexed.normalizedCountry)
             lookup[key] = indexed.item.timeZoneIdentifier
         }
         cityCountryToTimeZone = lookup
+
+        curatedPopularItems = Self.curatedPopularCitySeeds.map { seed in
+            if let exact = indexedLocalItemsLocal.first(where: {
+                $0.normalizedCity == Self.normalize(seed.city) &&
+                $0.normalizedCountry == Self.normalize(seed.country) &&
+                $0.normalizedTimeZone == Self.normalize(seed.timeZoneIdentifier)
+            }) {
+                return exact.item
+            }
+
+            if let sameTimeZoneAndCountry = indexedLocalItemsLocal.first(where: {
+                $0.normalizedCountry == Self.normalize(seed.country) &&
+                $0.normalizedTimeZone == Self.normalize(seed.timeZoneIdentifier)
+            }) {
+                return sameTimeZoneAndCountry.item
+            }
+
+            if let sameTimeZone = indexedLocalItemsLocal.first(where: {
+                $0.normalizedTimeZone == Self.normalize(seed.timeZoneIdentifier)
+            }) {
+                return sameTimeZone.item
+            }
+
+            return CitySearchItem(
+                id: "popular-\(Self.normalize(seed.city))",
+                city: seed.city,
+                country: seed.country,
+                timeZoneIdentifier: seed.timeZoneIdentifier,
+                aliases: []
+            )
+        }
     }
 
     func referenceItemsForZeroState() -> [CitySearchItem] {
         zeroOffsetReferenceItems
+    }
+
+    func popularCitiesForZeroState() -> [CitySearchItem] {
+        curatedPopularItems
     }
 
     func localResults(
@@ -438,5 +481,23 @@ final class CitySearchProvider {
             canonicalID: "custom.gmt",
             specialReferenceKind: .gmt
         )
+    ]
+
+    private static let curatedPopularCitySeeds: [PopularCitySeed] = [
+        PopularCitySeed(city: "Los Angeles", country: "United States", timeZoneIdentifier: "America/Los_Angeles"),
+        PopularCitySeed(city: "Denver", country: "United States", timeZoneIdentifier: "America/Denver"),
+        PopularCitySeed(city: "Chicago", country: "United States", timeZoneIdentifier: "America/Chicago"),
+        PopularCitySeed(city: "New York", country: "United States", timeZoneIdentifier: "America/New_York"),
+        PopularCitySeed(city: "São Paulo", country: "Brazil", timeZoneIdentifier: "America/Sao_Paulo"),
+        PopularCitySeed(city: "London", country: "United Kingdom", timeZoneIdentifier: "Europe/London"),
+        PopularCitySeed(city: "Berlin", country: "Germany", timeZoneIdentifier: "Europe/Berlin"),
+        PopularCitySeed(city: "Cairo", country: "Egypt", timeZoneIdentifier: "Africa/Cairo"),
+        PopularCitySeed(city: "Dubai", country: "United Arab Emirates", timeZoneIdentifier: "Asia/Dubai"),
+        PopularCitySeed(city: "Mumbai", country: "India", timeZoneIdentifier: "Asia/Kolkata"),
+        PopularCitySeed(city: "Bangkok", country: "Thailand", timeZoneIdentifier: "Asia/Bangkok"),
+        PopularCitySeed(city: "Singapore", country: "Singapore", timeZoneIdentifier: "Asia/Singapore"),
+        PopularCitySeed(city: "Tokyo", country: "Japan", timeZoneIdentifier: "Asia/Tokyo"),
+        PopularCitySeed(city: "Sydney", country: "Australia", timeZoneIdentifier: "Australia/Sydney"),
+        PopularCitySeed(city: "Auckland", country: "New Zealand", timeZoneIdentifier: "Pacific/Auckland")
     ]
 }

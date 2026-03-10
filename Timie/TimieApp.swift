@@ -9,9 +9,12 @@ import SwiftUI
 
 @main
 struct TimieApp: App {
+    @StateObject private var cityStore = CityStore()
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(cityStore)
         }
     }
 }
