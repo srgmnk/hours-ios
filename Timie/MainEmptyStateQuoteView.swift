@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct MainEmptyStateQuoteView: View {
+    @Environment(\.appTheme) private var theme
     let quote: EmptyStateQuote
 
     private var trimmedAttribution: String? {
@@ -16,7 +17,7 @@ struct MainEmptyStateQuoteView: View {
         VStack(spacing: 16) {
             Image(systemName: "quote.opening")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.black.opacity(0.2))
+                .foregroundStyle(theme.textSecondary)
 
             Text(quote.text)
                 .font(.system(size: 24, weight: .medium))
@@ -29,7 +30,7 @@ struct MainEmptyStateQuoteView: View {
             }
         }
         .multilineTextAlignment(.center)
-        .foregroundStyle(.black.opacity(0.2))
+        .foregroundStyle(theme.textSecondary)
         .padding(.horizontal, 40)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
     }

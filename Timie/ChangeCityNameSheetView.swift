@@ -6,6 +6,7 @@ struct ChangeCityNameSheetView: View {
     let onSave: (String?) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTheme) private var theme
     @State private var customName: String = ""
     @State private var baselineDisplayName: String
     @State private var isNameFieldFocused = false
@@ -88,12 +89,8 @@ struct ChangeCityNameSheetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             }
             .background(
-                Color(
-                    red: 238.0 / 255.0,
-                    green: 238.0 / 255.0,
-                    blue: 238.0 / 255.0
-                )
-                .ignoresSafeArea()
+                SheetStyle.appScreenBackground(for: theme)
+                    .ignoresSafeArea()
             )
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
@@ -114,12 +111,12 @@ struct ChangeCityNameSheetView: View {
                                     .font(.system(size: 16, weight: .regular))
                                     .tracking(-0.48)
                             }
-                            .foregroundStyle(.white)
+                            .foregroundStyle(theme.textInverse)
                             .padding(.horizontal, 10)
                             .frame(height: 32)
                             .background(
                                 Capsule(style: .continuous)
-                                    .fill(Color.black.opacity(0.88))
+                                    .fill(theme.textPrimary.opacity(0.88))
                             )
                         }
                         .buttonStyle(.plain)
@@ -129,7 +126,7 @@ struct ChangeCityNameSheetView: View {
                             .font(.system(size: 14, weight: .regular))
                             .tracking(-0.42)
                             .multilineTextAlignment(.center)
-                            .foregroundStyle(Color.black.opacity(0.2))
+                            .foregroundStyle(theme.textSecondary)
                             .transition(.opacity)
                     }
                 }
@@ -147,6 +144,7 @@ struct ChangeCityNameSheetView: View {
                         } label: {
                             Image(systemName: "xmark")
                             .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(theme.textPrimary)
                         }
                     .buttonStyle(.plain)
                 }
@@ -158,6 +156,7 @@ struct ChangeCityNameSheetView: View {
                         }
                         .font(.system(size: 17, weight: .medium))
                         .tracking(-0.41)
+                        .foregroundStyle(theme.textPrimary)
                     }
                 }
             }
@@ -200,11 +199,20 @@ private struct NativeCenteredNameTextField: UIViewRepresentable {
     let placeholder: String
     @Binding var isFocused: Bool
     let onSubmit: () -> Void
+    @Environment(\.appTheme) private var theme
+
+    private var textColor: UIColor {
+        UIColor(theme.textPrimary)
+    }
+
+    private var placeholderColor: UIColor {
+        UIColor(theme.textSecondary)
+    }
 
     private var placeholderAttributes: [NSAttributedString.Key: Any] {
         [
             .font: UIFont.systemFont(ofSize: 46, weight: .semibold),
-            .foregroundColor: UIColor.black.withAlphaComponent(0.2),
+            .foregroundColor: placeholderColor,
             .kern: -0.96
         ]
     }
@@ -218,12 +226,13 @@ private struct NativeCenteredNameTextField: UIViewRepresentable {
         textField.autocorrectionType = .no
         textField.autocapitalizationType = .words
         textField.textAlignment = .center
-        textField.textColor = .black
+        textField.textColor = textColor
         textField.adjustsFontSizeToFitWidth = true
         textField.minimumFontSize = 20
         textField.backgroundColor = .clear
         textField.borderStyle = .none
         textField.clearButtonMode = .never
+        textField.tintColor = UIColor(theme.accent)
         textField.clipsToBounds = true
         textField.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -241,8 +250,16 @@ private struct NativeCenteredNameTextField: UIViewRepresentable {
             uiView.text = text
         }
 
+        uiView.textColor = textColor
+        uiView.tintColor = UIColor(theme.accent)
+
         if uiView.placeholder != placeholder {
             uiView.placeholder = placeholder
+            uiView.attributedPlaceholder = NSAttributedString(
+                string: placeholder,
+                attributes: placeholderAttributes
+            )
+        } else {
             uiView.attributedPlaceholder = NSAttributedString(
                 string: placeholder,
                 attributes: placeholderAttributes

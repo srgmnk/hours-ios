@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct DeltaPillView: View {
+    @Environment(\.appTheme) private var theme
     enum PillMode {
         case now
         case future
@@ -11,8 +12,6 @@ struct DeltaPillView: View {
     let deltaText: String
     let onDoubleTapReset: () -> Void
 
-    private let accentOrange = Color(red: 0xE8 / 255, green: 0x53 / 255, blue: 0x34 / 255)
-    private let labelBlack = Color(red: 0x22 / 255, green: 0x22 / 255, blue: 0x22 / 255)
     private let pillShape = RoundedRectangle(cornerRadius: 100, style: .continuous)
 
     var body: some View {
@@ -41,14 +40,14 @@ struct DeltaPillView: View {
         .background {
             if mode == .now {
                 RoundedRectangle(cornerRadius: 100, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(backgroundColor)
                     .overlay {
                         RoundedRectangle(cornerRadius: 100, style: .continuous)
-                            .fill(Color.white.opacity(0.01))
+                            .fill(textColor.opacity(0.03))
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 100, style: .continuous)
-                            .strokeBorder(Color.white.opacity(0.2), lineWidth: 0.6)
+                            .strokeBorder(textColor.opacity(0.05), lineWidth: 0.6)
                     }
             } else {
                 RoundedRectangle(cornerRadius: 100, style: .continuous)
@@ -61,11 +60,11 @@ struct DeltaPillView: View {
         }
         .overlay {
             pillShape
-                .strokeBorder(Color.white.opacity(0.16), lineWidth: 0.6)
+                .strokeBorder(Color.white.opacity(0.05), lineWidth: 0.6)
         }
         .overlay(alignment: .top) {
             pillShape
-                .stroke(Color.white.opacity(0.22), lineWidth: 1)
+                .stroke(Color.white.opacity(0.05), lineWidth: 1)
                 .mask(
                     LinearGradient(
                         colors: [.white, .clear],
@@ -83,9 +82,11 @@ struct DeltaPillView: View {
     private var textColor: Color {
         switch mode {
         case .now:
-            return .black.opacity(0.3)
-        case .past, .future:
-            return .white
+            return theme.pillNowForeground
+        case .past:
+            return theme.pillPastForeground
+        case .future:
+            return theme.pillFutureForeground
         }
     }
     
@@ -100,11 +101,11 @@ struct DeltaPillView: View {
     private var backgroundColor: Color {
         switch mode {
         case .now:
-            return Color.black.opacity(0.2)
+            return theme.pillNowBackground
         case .past:
-            return labelBlack
+            return theme.pillPastBackground
         case .future:
-            return accentOrange
+            return theme.pillFutureBackground
         }
     }
 }

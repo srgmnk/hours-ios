@@ -7,6 +7,7 @@ struct AddCitySheetView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
+    @Environment(\.appTheme) private var theme
     @State private var query = ""
     @State private var results: [CitySearchItem] = []
     @State private var searchTask: Task<Void, Never>?
@@ -108,7 +109,7 @@ struct AddCitySheetView: View {
                             HStack(alignment: .center, spacing: 12) {
                                 Text(rowPrimaryText(for: item, isCurrentLocationLoadingRow: isLocationLoadingRow))
                                     .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(theme.textPrimary)
                                     .lineLimit(1)
                                     .opacity(isLocationLoadingRow ? 0.2 : 1)
                                     .modifier(LocationPlaceholderShimmer(isActive: isLocationLoadingRow))
@@ -158,7 +159,7 @@ struct AddCitySheetView: View {
             .environment(\.defaultMinListRowHeight, 0)
             .listStyle(.plain)
             .scrollContentBackground(.hidden)
-            .background(SheetStyle.appScreenBackground)
+            .background(SheetStyle.appScreenBackground(for: theme))
             .padding(.horizontal, 8)
             .navigationTitle("Add City")
             .navigationBarTitleDisplayMode(.inline)
@@ -182,7 +183,7 @@ struct AddCitySheetView: View {
                 bottomSearchArea
             }
         }
-        .background(SheetStyle.appScreenBackground.ignoresSafeArea())
+        .background(SheetStyle.appScreenBackground(for: theme).ignoresSafeArea())
         .onAppear {
             performSearch(for: query)
             currentLocationProvider.requestCurrentCity()
@@ -223,7 +224,7 @@ struct AddCitySheetView: View {
             Text("Popular cities")
                 .font(.system(size: 14))
                 .tracking(-0.42)
-                .foregroundStyle(Color.black.opacity(0.2))
+                .foregroundStyle(theme.textSecondary)
             Spacer()
         }
         .padding(.horizontal, 20)
@@ -265,22 +266,22 @@ struct AddCitySheetView: View {
     private func rowBackground(for index: Int, total: Int) -> some View {
         if total <= 1 {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(SheetStyle.groupedRowBackground)
+                .fill(SheetStyle.groupedRowBackground(for: theme))
         } else if index == 0 {
             UnevenRoundedRectangle(
                 cornerRadii: .init(topLeading: 24, bottomLeading: 0, bottomTrailing: 0, topTrailing: 24),
                 style: .continuous
             )
-            .fill(SheetStyle.groupedRowBackground)
+            .fill(SheetStyle.groupedRowBackground(for: theme))
         } else if index == total - 1 {
             UnevenRoundedRectangle(
                 cornerRadii: .init(topLeading: 0, bottomLeading: 24, bottomTrailing: 24, topTrailing: 0),
                 style: .continuous
             )
-            .fill(SheetStyle.groupedRowBackground)
+            .fill(SheetStyle.groupedRowBackground(for: theme))
         } else {
             Rectangle()
-                .fill(SheetStyle.groupedRowBackground)
+                .fill(SheetStyle.groupedRowBackground(for: theme))
         }
     }
 
@@ -378,6 +379,7 @@ private struct LocationPlaceholderShimmer: ViewModifier {
 }
 
 private struct AddCityEmptyStateView: View {
+    @Environment(\.appTheme) private var theme
     let title: String
 
     private var subtitle: String {
@@ -399,7 +401,7 @@ private struct AddCityEmptyStateView: View {
                     .font(.system(size: 32, weight: .semibold))
                     .tracking(-0.96)
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(Color.black.opacity(0.2))
+                    .foregroundStyle(theme.textSecondary)
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
 
@@ -407,7 +409,7 @@ private struct AddCityEmptyStateView: View {
                     .font(.system(size: 14, weight: .medium))
                     .tracking(-0.42)
                     .multilineTextAlignment(.center)
-                    .foregroundStyle(Color.black.opacity(0.2))
+                    .foregroundStyle(theme.textSecondary)
 
             }
         }
@@ -419,6 +421,7 @@ private struct AddCityEmptyStateView: View {
 }
 
 private struct CitySearchRowLabel: View {
+    @Environment(\.appTheme) private var theme
     enum Kind {
         case none
         case locationLoading
@@ -452,24 +455,24 @@ private struct CitySearchRowLabel: View {
         case .none:
             return .clear
         case .locationLoading:
-            return Color.black.opacity(0.3)
+            return theme.tagNeutralText
         case .added:
-            return Color(red: 0x56 / 255, green: 0x82 / 255, blue: 0x22 / 255)
+            return theme.tagAddedText
         case .myLocation, .referenceDescription, .utc:
-            return Color.black.opacity(0.3)
+            return theme.tagNeutralText
         }
     }
 
     private var backgroundColor: Color {
         switch kind {
         case .none:
-            return .clear
+            return theme.tagNeutralBackground
         case .locationLoading:
-            return .clear
+            return theme.tagNeutralBackground
         case .added:
-            return Color(red: 0xE8 / 255, green: 0xEC / 255, blue: 0xE3 / 255)
+            return theme.tagAddedBackground
         case .myLocation, .referenceDescription, .utc:
-            return .clear
+            return theme.tagNeutralBackground
         }
     }
 
@@ -478,11 +481,11 @@ private struct CitySearchRowLabel: View {
         case .none:
             return .clear
         case .locationLoading:
-            return Color.black.opacity(0.05)
+            return theme.separatorSoft
         case .added:
             return .clear
         case .myLocation, .referenceDescription, .utc:
-            return Color.black.opacity(0.05)
+            return theme.separatorSoft
         }
     }
 

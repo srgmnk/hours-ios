@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct CityCardView: View {
+    @Environment(\.appTheme) private var theme
     let city: City
     let selectedInstant: Date
     let referenceTimeZone: TimeZone
@@ -8,8 +9,8 @@ struct CityCardView: View {
     var isUserCurrentLocation: Bool = false
     let cardBackgroundColor: Color
 
-    private let titleColor = Color(red: 0xE8 / 255, green: 0x53 / 255, blue: 0x34 / 255)
-    private let secondaryTextColor = Color.black.opacity(0.2)
+    private var titleColor: Color { theme.accent }
+    private var secondaryTextColor: Color { theme.textSecondary }
     private let meridiemLabelXOffset: CGFloat = 66
     private let meridiemLabelYOffset: CGFloat = 13
 
@@ -102,13 +103,13 @@ struct CityCardView: View {
                         .font(.system(size: 48, weight: .medium))
                         .monospacedDigit()
                         .tracking(-1)
-                        .foregroundStyle(.black)
+                        .foregroundStyle(theme.textPrimary)
 
                     if let meridiem = timeComponents.meridiem {
                         Text(meridiem)
                             .font(.system(size: 14, weight: .medium))
                             .tracking(-0.42)
-                            .foregroundStyle(.black)
+                            .foregroundStyle(theme.textPrimary)
                             .offset(x: meridiemLabelXOffset + 10, y: meridiemLabelYOffset - 1)
                     }
                 }
@@ -166,13 +167,13 @@ struct CityCardView: View {
                             Text("DST")
                                 .font(.system(size: 10, weight: .bold, design: .rounded))
                                 .tracking(-0.9)
-                                .foregroundStyle(Color.black.opacity(0.2))
+                                .foregroundStyle(theme.textSecondary)
                                 .padding(.horizontal, 5)
                                 .padding(.bottom, 0.5)
                                 .frame(height: 17)
                                 .background(
                                     RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                        .stroke(Color.black.opacity(0.1), lineWidth: 1)
+                                        .stroke(theme.borderSubtle, lineWidth: 1)
                                 )
                         }
                     }

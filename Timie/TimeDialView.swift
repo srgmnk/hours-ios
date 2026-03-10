@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TimeDialView: View {
+    @Environment(\.appTheme) private var theme
     private static let tickCount = 288
     private static let tenMinuteTickInterval = 2
     private static let hourTickInterval = 12
@@ -18,11 +19,11 @@ struct TimeDialView: View {
     @State private var startRotationDegrees = 0.0
 
     var body: some View {
-        let defaultTickColor = Color.black.opacity(0.2)
+        let defaultTickColor = theme.textSecondary
         let offsetStepsSigned = stepIndex
         let offsetMinutes = offsetStepsSigned * Self.minutesPerStep
-        let futureFillColor = Color(red: 0xE8 / 255, green: 0x53 / 255, blue: 0x34 / 255)
-        let pastFillColor = Color(red: 0x22 / 255, green: 0x22 / 255, blue: 0x22 / 255)
+        let futureFillColor = theme.accent
+        let pastFillColor = theme.textPrimary
         let fillColor = offsetStepsSigned > 0 ? futureFillColor : pastFillColor
         let centerTickIndex = Self.activeCenterTickIndex(rotationDegrees: rotationDegrees)
         let filledSet = Self.filledTickIndices(

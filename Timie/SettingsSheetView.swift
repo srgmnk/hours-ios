@@ -10,7 +10,9 @@ private enum RowTrailing {
 struct SettingsSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
+    @Environment(\.appTheme) private var theme
     @AppStorage(AppTimeFormatPreference.storageKey) private var timeFormatPreferenceRawValue = AppTimeFormatPreference.system.rawValue
+    @AppStorage(AppAppearancePreference.storageKey) private var appearancePreferenceRawValue = AppAppearancePreference.system.rawValue
     @State private var isMailComposerPresented = false
 
     private let linkRows = [
@@ -25,6 +27,10 @@ struct SettingsSheetView: View {
         set { timeFormatPreferenceRawValue = newValue.rawValue }
     }
 
+    private var selectedAppearancePreference: AppAppearancePreference {
+        AppAppearancePreference.from(rawValue: appearancePreferenceRawValue)
+    }
+
     private var mailRecipient: String { "hi@sergy.xyz" }
     private var mailSubject: String { "Timie — Contact" }
     private var appVersion: String {
@@ -33,7 +39,7 @@ struct SettingsSheetView: View {
     private var appBuild: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
     }
-    private var appearanceSettingDescription: String { "System" }
+    private var appearanceSettingDescription: String { selectedAppearancePreference.displayTitle }
     private var mailBody: String {
         let locale = Locale.current.identifier
         let timeZone = TimeZone.current.identifier
@@ -63,7 +69,7 @@ struct SettingsSheetView: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                SheetStyle.appScreenBackground
+                SheetStyle.appScreenBackground(for: theme)
                     .ignoresSafeArea()
 
                 ScrollView(.vertical, showsIndicators: false) {
@@ -152,7 +158,7 @@ struct SettingsSheetView: View {
             Text("Time format")
                 .font(.system(size: 16, weight: .regular))
                 .tracking(-0.48)
-                .foregroundStyle(.black)
+                .foregroundStyle(theme.textPrimary)
 
             Spacer(minLength: 0)
 
@@ -174,18 +180,18 @@ struct SettingsSheetView: View {
                     Text(selectedTimeFormatPreference.displayTitle)
                         .font(.system(size: 16, weight: .medium))
                         .tracking(-0.48)
-                        .foregroundStyle(.black)
+                        .foregroundStyle(theme.textPrimary)
 
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.black.opacity(0.3))
+                        .foregroundStyle(theme.tagNeutralText)
                 }
                 .padding(.leading, 16)
                 .padding(.trailing, 12)
                 .frame(height: 48)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white.opacity(0.8))
+                        .fill(theme.surfaceControl)
                 )
             }
             .buttonStyle(.plain)
@@ -206,26 +212,48 @@ struct SettingsSheetView: View {
             Text("Appearance")
                 .font(.system(size: 16, weight: .regular))
                 .tracking(-0.48)
-                .foregroundStyle(.black)
+                .foregroundStyle(theme.textPrimary)
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 4) {
-                Text("System")
-                    .font(.system(size: 16, weight: .medium))
-                    .tracking(-0.48)
-                    .foregroundStyle(.black)
+            Menu {
+                ForEach(AppAppearancePreference.allCases, id: \.self) { preference in
+                    Button {
+                        appearancePreferenceRawValue = preference.rawValue
+                        triggerNotificationHaptic(.success)
+                    } label: {
+                        if preference == selectedAppearancePreference {
+                            Label(preference.displayTitle, systemImage: "checkmark")
+                        } else {
+                            Text(preference.displayTitle)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(selectedAppearancePreference.displayTitle)
+                        .font(.system(size: 16, weight: .medium))
+                        .tracking(-0.48)
+                        .foregroundStyle(theme.textPrimary)
 
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Color.black.opacity(0.3))
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(theme.tagNeutralText)
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 12)
+                .frame(height: 48)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(theme.surfaceControl)
+                )
             }
-            .padding(.leading, 16)
-            .padding(.trailing, 12)
-            .frame(height: 48)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.8))
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    triggerImpactHaptic(.medium)
+                }
             )
         }
         .padding(.leading, 20)
@@ -295,19 +323,19 @@ struct SettingsSheetView: View {
         VStack(spacing: 20) {
             Image(systemName: "heart.gauge.open")
                 .font(.system(size: 18, weight: .regular))
-                .foregroundStyle(Color.black.opacity(0.15))
+                .foregroundStyle(theme.textSubdued)
             
             Text("built by one person simply because I’d wanted\nit for a long time")
                 .font(.system(size: 14, weight: .regular))
                 .tracking(-0.42)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(Color.black.opacity(0.15))
+                .foregroundStyle(theme.textSubdued)
 
             Text("fortis imaginatio generat casum\n© 2026")
                 .font(.system(size: 14, weight: .regular))
                 .tracking(-0.42)
                 .multilineTextAlignment(.center)
-                .foregroundStyle(Color.black.opacity(0.15))
+                .foregroundStyle(theme.textSubdued)
         }
     }
 
@@ -315,27 +343,28 @@ struct SettingsSheetView: View {
     private func groupedRowBackground(for index: Int, total: Int) -> some View {
         if total <= 1 {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(SheetStyle.groupedRowBackground)
+                .fill(SheetStyle.groupedRowBackground(for: theme))
         } else if index == 0 {
             UnevenRoundedRectangle(
                 cornerRadii: .init(topLeading: 24, bottomLeading: 0, bottomTrailing: 0, topTrailing: 24),
                 style: .continuous
             )
-            .fill(SheetStyle.groupedRowBackground)
+            .fill(SheetStyle.groupedRowBackground(for: theme))
         } else if index == total - 1 {
             UnevenRoundedRectangle(
                 cornerRadii: .init(topLeading: 0, bottomLeading: 24, bottomTrailing: 24, topTrailing: 0),
                 style: .continuous
             )
-            .fill(SheetStyle.groupedRowBackground)
+            .fill(SheetStyle.groupedRowBackground(for: theme))
         } else {
             Rectangle()
-                .fill(SheetStyle.groupedRowBackground)
+                .fill(SheetStyle.groupedRowBackground(for: theme))
         }
     }
 }
 
 private struct SettingsLinkRow: View {
+    @Environment(\.appTheme) private var theme
     let title: String
     let trailing: RowTrailing?
     let onTap: (() -> Void)?
@@ -346,7 +375,7 @@ private struct SettingsLinkRow: View {
             Text(title)
                 .font(.system(size: 16, weight: .regular))
                 .tracking(-0.48)
-                .foregroundStyle(.black)
+                .foregroundStyle(theme.textPrimary)
 
             Spacer(minLength: 0)
 
@@ -356,11 +385,11 @@ private struct SettingsLinkRow: View {
                     Text(value)
                         .font(.system(size: 16, weight: .regular))
                         .tracking(-0.48)
-                        .foregroundStyle(Color.black.opacity(0.15))
+                        .foregroundStyle(theme.textSubdued)
                 case .symbol(let name):
                     Image(systemName: name)
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Color.black.opacity(0.15))
+                        .foregroundStyle(theme.textSubdued)
                 }
             }
         }

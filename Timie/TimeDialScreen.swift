@@ -7,6 +7,7 @@ struct TimeDialScreen: View {
     @StateObject private var currentLocationProvider = CurrentLocationCityProvider()
     @EnvironmentObject private var cityStore: CityStore
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.appTheme) private var theme
     @State private var lastSnappedOffsetSteps = 0
     @State private var isDraggingSessionActive = false
     @State private var dialHeight: CGFloat = 260
@@ -39,7 +40,7 @@ struct TimeDialScreen: View {
     var body: some View {
         GeometryReader { geo in
             ZStack(alignment: .bottom) {
-                SheetStyle.appScreenBackground
+                SheetStyle.appScreenBackground(for: theme)
                     .ignoresSafeArea()
 
                 if !cityStore.cities.isEmpty {
@@ -51,7 +52,7 @@ struct TimeDialScreen: View {
                         topSafeAreaInset: topButtonBarTopPadding + ((topButtonBarHeight - logoHeight) / 2),
                         // Desired visual stop gap from physical screen bottom.
                         bottomContentInset: cityListDesiredBottomGap,
-                        cardBackgroundColor: SheetStyle.appCardBackground,
+                        cardBackgroundColor: SheetStyle.appCardBackground(for: theme),
                         onRenameRequested: presentRenameSheet(for:)
                     )
                     .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
@@ -149,12 +150,12 @@ struct TimeDialScreen: View {
                             .font(.system(size: 16, weight: .medium))
                             .tracking(-0.64)
                     }
-                    .foregroundStyle(.primary.opacity(0.90))
+                    .foregroundStyle(theme.textPrimary.opacity(0.90))
                     .frame(width: 87, height: topButtonBarHeight)
                     .glassEffect(.clear, in: Capsule())
                     .overlay(
                         Capsule()
-                            .fill(.black.opacity(0.07))
+                            .fill(theme.glassFill)
                     )
                 }
                 .buttonStyle(.plain)
@@ -168,12 +169,12 @@ struct TimeDialScreen: View {
                 }) {
                     Image(systemName: "line.3.horizontal.decrease")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(.primary.opacity(0.90))
+                        .foregroundStyle(theme.textPrimary.opacity(0.90))
                         .frame(width: topButtonBarHeight, height: topButtonBarHeight)
                         .glassEffect(.clear, in: Capsule())
                         .overlay(
                             Capsule()
-                                .fill(.black.opacity(0.07))
+                                .fill(theme.glassFill)
                         )
                 }
                 .buttonStyle(.plain)
@@ -440,12 +441,17 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     private var topInset: CGFloat = 0
     private var bottomInset: CGFloat = 0
     private var userCurrentLocationItem: CitySearchItem?
-    private var cardBackgroundColor: Color = SheetStyle.appCardBackground
+    private var cardBackgroundColor: Color = AppTheme.light.surfaceCard
     private var isReordering = false
     private var pendingExternalState: PendingExternalState?
     private var draggedCityID: City.ID?
     private weak var liftedCell: CityListReorderCollectionCell?
     private let deleteSuccessHaptics = UINotificationFeedbackGenerator()
+
+    private var resolvedTheme: AppTheme {
+        let colorScheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+        return AppTheme.forColorScheme(colorScheme)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -716,8 +722,11 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             }
             completion(true)
         }
-        renameAction.image = UIImage(systemName: "character.textbox")
-        renameAction.backgroundColor = .black
+        renameAction.image = UIImage(systemName: "character.textbox")?.withTintColor(
+            UIColor(resolvedTheme.textInverse),
+            renderingMode: .alwaysOriginal
+        )
+        renameAction.backgroundColor = UIColor(resolvedTheme.textPrimary)
 
         let deleteAction = UIContextualAction(style: .destructive, title: nil) { [weak self] _, _, completion in
             guard let self else {
@@ -727,7 +736,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             completion(deleteCity(at: indexPath))
         }
         deleteAction.image = UIImage(systemName: "trash.fill")
-        deleteAction.backgroundColor = UIColor(red: 0xE8 / 255, green: 0x53 / 255, blue: 0x34 / 255, alpha: 1)
+        deleteAction.backgroundColor = UIColor(resolvedTheme.accent)
 
         // UIKit trailing actions render first item on the far trailing edge.
         // Order here yields: Rename (near card), Delete (far right).
@@ -979,6 +988,7 @@ private final class CityListReorderCollectionCell: UICollectionViewCell {
         isUserCurrentLocation: Bool,
         cardBackgroundColor: Color
     ) {
+        let resolvedTheme = AppTheme.forColorScheme(traitCollection.userInterfaceStyle == .dark ? .dark : .light)
         contentConfiguration = UIHostingConfiguration {
             CityCardView(
                 city: city,
@@ -988,6 +998,7 @@ private final class CityListReorderCollectionCell: UICollectionViewCell {
                 isUserCurrentLocation: isUserCurrentLocation,
                 cardBackgroundColor: cardBackgroundColor
             )
+            .environment(\.appTheme, resolvedTheme)
         }
         .margins(.all, 0)
     }
@@ -1015,6 +1026,7 @@ private final class CityListReorderCollectionCell: UICollectionViewCell {
 }
 
 struct CityListView: View {
+    @Environment(\.appTheme) private var theme
     @Binding var cities: [City]
     let selectedInstant: Date
     let currentCity: City
@@ -1104,7 +1116,7 @@ struct CityListView: View {
                     selectedInstant: selectedInstant,
                     referenceTimeZone: currentCity.timeZone,
                     isCurrent: (reorderController.proposedIndex ?? reorderController.sourceIndex ?? 0) == 0,
-                    cardBackgroundColor: SheetStyle.appCardBackground
+                    cardBackgroundColor: SheetStyle.appCardBackground(for: theme)
                 )
                 .frame(width: initialFrame.width, height: initialFrame.height)
                 .scaleEffect(1.03)
@@ -1234,7 +1246,7 @@ struct CityListView: View {
             selectedInstant: selectedInstant,
             referenceTimeZone: currentCity.timeZone,
             isCurrent: index == 0,
-            cardBackgroundColor: SheetStyle.appCardBackground
+            cardBackgroundColor: SheetStyle.appCardBackground(for: theme)
         )
         // Keep layout stable while this row is represented by the top-level dragged overlay.
         .opacity(isDraggedRow ? 0 : 1)
