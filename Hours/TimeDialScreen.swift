@@ -39,6 +39,9 @@ struct TimeDialScreen: View {
 
     var body: some View {
         GeometryReader { geo in
+            let topSafeInset = resolvedTopSafeAreaInset(from: geo)
+            let topControlsTop = topButtonTopOffset - max(0, 59 - topSafeInset)
+
             ZStack(alignment: .bottom) {
                 SheetStyle.appScreenBackground(for: theme)
                     .ignoresSafeArea()
@@ -78,7 +81,7 @@ struct TimeDialScreen: View {
             }
             .overlay(alignment: .top) {
                 topButtonBar()
-                    .padding(.top, topButtonTopOffset)
+                    .padding(.top, topControlsTop)
                     .ignoresSafeArea(edges: .top)
                     .zIndex(10)
             }
@@ -274,6 +277,18 @@ struct TimeDialScreen: View {
         smallTickHaptics.prepare()
         bigTickHaptics.prepare()
         zeroTickHaptics.prepare()
+    }
+
+    private func resolvedTopSafeAreaInset(from geometry: GeometryProxy) -> CGFloat {
+        max(geometry.safeAreaInsets.top, Self.keyWindowTopSafeAreaInset())
+    }
+
+    private static func keyWindowTopSafeAreaInset() -> CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow)?
+            .safeAreaInsets.top ?? 0
     }
 
     private func log(_ message: String) {
