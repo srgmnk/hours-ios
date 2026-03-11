@@ -39,7 +39,11 @@ final class CityStore: ObservableObject {
             }
             let data = try Data(contentsOf: citiesFileURL)
             let decoded = try JSONDecoder().decode([City].self, from: data)
-            cities = decoded
+            let migration = migrateCanonicalIdentitiesIfNeeded(decoded)
+            cities = migration.cities
+            if migration.didMigrate {
+                save()
+            }
         } catch {
             log("Failed to load cities from \(citiesFileURL.path). Error: \(error)")
             cities = []
@@ -75,6 +79,67 @@ final class CityStore: ObservableObject {
         if !fileManager.fileExists(atPath: directory.path) {
             try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         }
+    }
+
+    private func migrateCanonicalIdentitiesIfNeeded(_ cities: [City]) -> (cities: [City], didMigrate: Bool) {
+        var didMigrate = false
+        var migratedCities: [City] = []
+        migratedCities.reserveCapacity(cities.count)
+
+        for city in cities {
+            let migratedID = migratedCanonicalID(for: city)
+            if migratedID != city.id {
+                didMigrate = true
+            }
+
+            let migratedCity = City(
+                canonicalCity: CanonicalCity(
+                    id: migratedID,
+                    name: city.name,
+                    timeZoneID: city.timeZoneID
+                ),
+                customDisplayName: city.customDisplayName
+            )
+            migratedCities.append(migratedCity)
+        }
+
+        return (migratedCities, didMigrate)
+    }
+
+    private func migratedCanonicalID(for city: City) -> String {
+        if let customReferenceID = customReferenceCanonicalIDIfNeeded(for: city) {
+            return customReferenceID
+        }
+
+        if city.id.hasPrefix("city:") {
+            return city.id
+        }
+
+        if let providerCanonicalID = CitySearchProvider.shared.canonicalIdentityForStoredCity(
+            city: city.name,
+            timeZoneIdentifier: city.timeZoneID
+        ) {
+            return providerCanonicalID
+        }
+
+        return CitySearchItem.makeCanonicalIdentity(
+            city: city.name,
+            country: "",
+            timeZoneIdentifier: city.timeZoneID
+        )
+    }
+
+    private func customReferenceCanonicalIDIfNeeded(for city: City) -> String? {
+        let canonicalID = city.id.lowercased()
+        let timeZoneID = city.timeZoneID.lowercased()
+
+        if canonicalID == "custom.utc" || timeZoneID == "etc/utc" || timeZoneID == "utc" {
+            return "custom.utc"
+        }
+        if canonicalID == "custom.gmt" || timeZoneID == "gmt" {
+            return "custom.gmt"
+        }
+        return nil
     }
 
     private func log(_ message: String) {

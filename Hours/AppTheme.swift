@@ -1,6 +1,18 @@
 import SwiftUI
 
+enum AppThemeVariant {
+    case light
+    case dark
+}
+
+struct DialPillAppearance {
+    let foregroundColor: Color
+    let glassTintColor: Color?
+    let usesInteractiveGlass: Bool
+}
+
 struct AppTheme {
+    let variant: AppThemeVariant
     let screenBackground: Color
     let surfaceCard: Color
     let surfaceGroupedRow: Color
@@ -18,14 +30,12 @@ struct AppTheme {
     let tagNeutralText: Color
     let glassFill: Color
     let glassBorder: Color
-    let pillNowBackground: Color
-    let pillNowForeground: Color
-    let pillPastBackground: Color
-    let pillPastForeground: Color
-    let pillFutureBackground: Color
-    let pillFutureForeground: Color
+    let pillNow: DialPillAppearance
+    let pillPast: DialPillAppearance
+    let pillFuture: DialPillAppearance
 
     static let light = AppTheme(
+        variant: .light,
         screenBackground: Color(red: 238.0 / 255.0, green: 238.0 / 255.0, blue: 238.0 / 255.0),
         surfaceCard: Color(red: 247.0 / 255.0, green: 247.0 / 255.0, blue: 247.0 / 255.0),
         surfaceGroupedRow: Color(red: 247.0 / 255.0, green: 247.0 / 255.0, blue: 247.0 / 255.0),
@@ -43,19 +53,29 @@ struct AppTheme {
         tagNeutralText: Color.black.opacity(0.3),
         glassFill: Color.black.opacity(0.07),
         glassBorder: Color.white.opacity(0.2),
-        pillNowBackground: Color.white.opacity(0.66),
-        pillNowForeground: Color.black.opacity(0.42),
-        pillPastBackground: Color(red: 0x22 / 255, green: 0x22 / 255, blue: 0x22 / 255),
-        pillPastForeground: Color.white,
-        pillFutureBackground: Color(red: 0xE8 / 255, green: 0x53 / 255, blue: 0x34 / 255),
-        pillFutureForeground: Color.white
+        pillNow: DialPillAppearance(
+            foregroundColor: Color.black.opacity(0.42),
+            glassTintColor: nil,
+            usesInteractiveGlass: false
+        ),
+        pillPast: DialPillAppearance(
+            foregroundColor: .white,
+            glassTintColor: Color.black.opacity(0.80),
+            usesInteractiveGlass: false
+        ),
+        pillFuture: DialPillAppearance(
+            foregroundColor: .white,
+            glassTintColor: Color(red: 0xE8 / 255, green: 0x53 / 255, blue: 0x34 / 255),
+            usesInteractiveGlass: true
+        )
     )
 
     static let dark = AppTheme(
-        screenBackground: Color(red: 17.0 / 255.0, green: 18.0 / 255.0, blue: 21.0 / 255.0),
-        surfaceCard: Color(red: 28.0 / 255.0, green: 30.0 / 255.0, blue: 35.0 / 255.0),
-        surfaceGroupedRow: Color(red: 28.0 / 255.0, green: 30.0 / 255.0, blue: 35.0 / 255.0),
-        surfaceControl: Color.white.opacity(0.10),
+        variant: .dark,
+        screenBackground: Color(red: 17.0 / 255.0, green: 18.0 / 255.0, blue: 20.0 / 255.0),
+        surfaceCard: Color(red: 20.0 / 255.0, green: 22.0 / 255.0, blue: 25.0 / 255.0),
+        surfaceGroupedRow: Color(red: 20.0 / 255.0, green: 22.0 / 255.0, blue: 25.0 / 255.0),
+        surfaceControl: Color.white.opacity(0.04),
         textPrimary: Color.white.opacity(0.85),
         textSecondary: Color.white.opacity(0.3),
         textSubdued: Color.white.opacity(0.15),
@@ -66,15 +86,24 @@ struct AppTheme {
         tagAddedBackground: Color(red: 47.0 / 255.0, green: 53.0 / 255.0, blue: 42.0 / 255.0),
         tagAddedText: Color(red: 182.0 / 255.0, green: 208.0 / 255.0, blue: 145.0 / 255.0),
         tagNeutralBackground: .clear,
-        tagNeutralText: Color.white.opacity(0.72),
+        tagNeutralText: Color.white.opacity(0.5),
         glassFill: Color.white.opacity(0.12),
         glassBorder: Color.white.opacity(0.25),
-        pillNowBackground: Color(red: 32.0 / 255.0, green: 34.0 / 255.0, blue: 40.0 / 255.0),
-        pillNowForeground: Color.white.opacity(0.80),
-        pillPastBackground: Color(red: 41.0 / 255.0, green: 43.0 / 255.0, blue: 50.0 / 255.0),
-        pillPastForeground: Color.white.opacity(0.92),
-        pillFutureBackground: Color(red: 0xE8 / 255, green: 0x53 / 255, blue: 0x34 / 255),
-        pillFutureForeground: Color.white
+        pillNow: DialPillAppearance(
+            foregroundColor: Color.white.opacity(0.80),
+            glassTintColor: nil,
+            usesInteractiveGlass: false
+        ),
+        pillPast: DialPillAppearance(
+            foregroundColor: Color.black.opacity(0.90),
+            glassTintColor: Color.white.opacity(0.88),
+            usesInteractiveGlass: false
+        ),
+        pillFuture: DialPillAppearance(
+            foregroundColor: .white,
+            glassTintColor: Color(red: 0xE8 / 255, green: 0x53 / 255, blue: 0x34 / 255),
+            usesInteractiveGlass: true
+        )
     )
 
     static func forColorScheme(_ colorScheme: ColorScheme) -> AppTheme {

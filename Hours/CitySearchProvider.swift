@@ -192,6 +192,33 @@ final class CitySearchProvider {
         return nil
     }
 
+    func canonicalIdentityForStoredCity(
+        city: String,
+        timeZoneIdentifier: String
+    ) -> String? {
+        let normalizedCity = Self.normalize(city)
+        let normalizedTimeZone = Self.normalize(timeZoneIdentifier)
+
+        let exactMatches = indexedLocalItems.filter {
+            $0.normalizedCity == normalizedCity &&
+            $0.normalizedTimeZone == normalizedTimeZone &&
+            $0.item.specialReferenceKind == nil
+        }
+        if let exact = exactMatches.first {
+            return exact.item.canonicalIdentity
+        }
+
+        let cityOnlyMatches = indexedLocalItems.filter {
+            $0.normalizedCity == normalizedCity &&
+            $0.item.specialReferenceKind == nil
+        }
+        if cityOnlyMatches.count == 1, let match = cityOnlyMatches.first {
+            return match.item.canonicalIdentity
+        }
+
+        return nil
+    }
+
     private func mapKitFallbackResults(
         matching query: String,
         excluding existingTimeZoneIDs: Set<String>,

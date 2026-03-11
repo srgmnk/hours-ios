@@ -152,11 +152,7 @@ struct TimeDialScreen: View {
                     }
                     .foregroundStyle(theme.textPrimary.opacity(0.90))
                     .frame(width: 87, height: topButtonBarHeight)
-                    .glassEffect(.clear, in: Capsule())
-                    .overlay(
-                        Capsule()
-                            .fill(theme.glassFill)
-                    )
+                    .modifier(TopControlGlassModifier(shape: Capsule()))
                 }
                 .buttonStyle(.plain)
 
@@ -171,15 +167,21 @@ struct TimeDialScreen: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(theme.textPrimary.opacity(0.90))
                         .frame(width: topButtonBarHeight, height: topButtonBarHeight)
-                        .glassEffect(.clear, in: Capsule())
-                        .overlay(
-                            Capsule()
-                                .fill(theme.glassFill)
-                        )
+                        .modifier(TopControlGlassModifier(shape: Circle()))
                 }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
+        }
+    }
+
+    private struct TopControlGlassModifier<S: Shape>: ViewModifier {
+        let shape: S
+
+        func body(content: Content) -> some View {
+            content
+                .contentShape(shape)
+                .glassEffect(.regular, in: shape)
         }
     }
 
@@ -606,18 +608,22 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             return exactMatchIndex
         }
 
-        if let timeZoneMatchIndex = citiesLocal.firstIndex(where: {
-            !$0.isZeroOffsetReferenceCity &&
-            $0.timeZoneID.lowercased() == currentTimeZoneID
-        }) {
-            return timeZoneMatchIndex
+        let timeZoneMatchIndices = citiesLocal.indices.filter { index in
+            let city = citiesLocal[index]
+            return !city.isZeroOffsetReferenceCity &&
+                city.timeZoneID.lowercased() == currentTimeZoneID
+        }
+        if timeZoneMatchIndices.count == 1, let onlyMatch = timeZoneMatchIndices.first {
+            return onlyMatch
         }
 
-        if let cityNameMatchIndex = citiesLocal.firstIndex(where: {
-            !$0.isZeroOffsetReferenceCity &&
-            normalized($0.name) == normalizedCurrentCity
-        }) {
-            return cityNameMatchIndex
+        let cityNameMatchIndices = citiesLocal.indices.filter { index in
+            let city = citiesLocal[index]
+            return !city.isZeroOffsetReferenceCity &&
+                normalized(city.name) == normalizedCurrentCity
+        }
+        if cityNameMatchIndices.count == 1, let onlyMatch = cityNameMatchIndices.first {
+            return onlyMatch
         }
 
         return nil
@@ -933,7 +939,7 @@ private final class CityListLogoHeaderView: UICollectionReusableView {
         let topConstraint = imageView.topAnchor.constraint(equalTo: topAnchor)
         let heightConstraint = imageView.heightAnchor.constraint(equalToConstant: 15)
         let widthConstraint = imageView.widthAnchor.constraint(equalToConstant: 49)
-        let bottomConstraint = bottomAnchor.constraint(equalTo: imageView.bottomAnchor)
+        let bottomConstraint = bottomAnchor.constraint(greaterThanOrEqualTo: imageView.bottomAnchor)
         NSLayoutConstraint.activate([
             topConstraint,
             heightConstraint,

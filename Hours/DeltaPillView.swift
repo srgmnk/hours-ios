@@ -2,6 +2,7 @@ import SwiftUI
 
 struct DeltaPillView: View {
     @Environment(\.appTheme) private var theme
+
     enum PillMode {
         case now
         case future
@@ -13,8 +14,35 @@ struct DeltaPillView: View {
     let onDoubleTapReset: () -> Void
 
     private let pillShape = RoundedRectangle(cornerRadius: 100, style: .continuous)
+    private var appearance: DialPillAppearance {
+        switch mode {
+        case .now:
+            return theme.pillNow
+        case .future:
+            return theme.pillFuture
+        case .past:
+            return theme.pillPast
+        }
+    }
 
     var body: some View {
+        pillContent
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(appearance.foregroundColor)
+            .lineLimit(1)
+            .lineSpacing(0)
+            .padding(.horizontal, horizontalPadding)
+            .padding(.vertical, verticalPadding)
+            .frame(height: 30)
+            .fixedSize(horizontal: true, vertical: false)
+            .modifier(PillGlassEffectModifier(appearance: appearance, shape: pillShape))
+            .contentShape(pillShape)
+            .highPriorityGesture(TapGesture(count: 2).onEnded {
+                onDoubleTapReset()
+            })
+    }
+
+    private var pillContent: some View {
         HStack(spacing: 2) {
             switch mode {
             case .now:
@@ -29,67 +57,8 @@ struct DeltaPillView: View {
                     .monospacedDigit()
             }
         }
-        .font(.system(size: 16, weight: .semibold))
-        .foregroundStyle(textColor)
-        .lineLimit(1)
-        .lineSpacing(0)
-        .padding(.horizontal, horizontalPadding)
-        .padding(.vertical, verticalPadding)
-        .frame(height: 30)
-        .fixedSize(horizontal: true, vertical: false)
-        .background {
-            if mode == .now {
-                RoundedRectangle(cornerRadius: 100, style: .continuous)
-                    .fill(backgroundColor)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 100, style: .continuous)
-                            .fill(textColor.opacity(0.03))
-                    }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 100, style: .continuous)
-                            .strokeBorder(textColor.opacity(0.05), lineWidth: 0.6)
-                    }
-            } else {
-                RoundedRectangle(cornerRadius: 100, style: .continuous)
-                    .fill(backgroundColor)
-            }
-        }
-        .overlay {
-            pillShape
-                .fill(Color.white.opacity(0.05))
-        }
-        .overlay {
-            pillShape
-                .strokeBorder(Color.white.opacity(0.05), lineWidth: 0.6)
-        }
-        .overlay(alignment: .top) {
-            pillShape
-                .stroke(Color.white.opacity(0.05), lineWidth: 1)
-                .mask(
-                    LinearGradient(
-                        colors: [.white, .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                )
-        }
-        .contentShape(pillShape)
-        .highPriorityGesture(TapGesture(count: 2).onEnded {
-            onDoubleTapReset()
-        })
     }
-    
-    private var textColor: Color {
-        switch mode {
-        case .now:
-            return theme.pillNowForeground
-        case .past:
-            return theme.pillPastForeground
-        case .future:
-            return theme.pillFutureForeground
-        }
-    }
-    
+
     private var horizontalPadding: CGFloat {
         mode == .now ? 12 : 8
     }
@@ -97,15 +66,28 @@ struct DeltaPillView: View {
     private var verticalPadding: CGFloat {
         mode == .now ? 8 : 4
     }
+}
 
-    private var backgroundColor: Color {
-        switch mode {
-        case .now:
-            return theme.pillNowBackground
-        case .past:
-            return theme.pillPastBackground
-        case .future:
-            return theme.pillFutureBackground
+private struct PillGlassEffectModifier: ViewModifier {
+    let appearance: DialPillAppearance
+    let shape: RoundedRectangle
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if let tint = appearance.glassTintColor {
+            if appearance.usesInteractiveGlass {
+                content
+                    .glassEffect(.regular.tint(tint).interactive(), in: shape)
+            } else {
+                content
+                    .glassEffect(.regular.tint(tint), in: shape)
+            }
+        } else if appearance.usesInteractiveGlass {
+            content
+                .glassEffect(.regular.interactive(), in: shape)
+        } else {
+            content
+                .glassEffect(.regular, in: shape)
         }
     }
 }

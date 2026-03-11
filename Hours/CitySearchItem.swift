@@ -42,7 +42,24 @@ struct CitySearchItem: Identifiable, Codable, Hashable {
     }
 
     var canonicalIdentity: String {
-        canonicalID ?? timeZoneIdentifier
+        if let canonicalID {
+            return canonicalID
+        }
+
+        if let specialReferenceKind {
+            switch specialReferenceKind {
+            case .utc:
+                return "custom.utc"
+            case .gmt:
+                return "custom.gmt"
+            }
+        }
+
+        return Self.makeCanonicalIdentity(
+            city: city,
+            country: country,
+            timeZoneIdentifier: timeZoneIdentifier
+        )
     }
 
     var specialReferenceDescription: String? {
@@ -63,5 +80,36 @@ struct CitySearchItem: Identifiable, Codable, Hashable {
     func rowText(referenceDate: Date = Date()) -> String {
         let leftText = country.isEmpty ? city : "\(city), \(country)"
         return "\(leftText), \(utcOffsetText(referenceDate: referenceDate))"
+    }
+
+    static func makeCanonicalIdentity(
+        city: String,
+        country: String,
+        timeZoneIdentifier: String
+    ) -> String {
+        let cityComponent = normalizeIdentityComponent(city)
+        let countryComponent = normalizeIdentityComponent(country)
+        let timeZoneComponent = normalizeIdentityComponent(timeZoneIdentifier)
+        return "city:\(cityComponent)|country:\(countryComponent)|tz:\(timeZoneComponent)"
+    }
+
+    private static func normalizeIdentityComponent(_ value: String) -> String {
+        let folded = value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        let allowedScalars = folded.unicodeScalars.map { scalar -> Character in
+            switch scalar {
+            case "|" , ":":
+                return "-"
+            default:
+                return Character(scalar)
+            }
+        }
+
+        let sanitized = String(allowedScalars)
+        let parts = sanitized.split(whereSeparator: { $0.isWhitespace || $0 == "/" })
+        return parts.isEmpty ? "_" : parts.joined(separator: "-")
     }
 }

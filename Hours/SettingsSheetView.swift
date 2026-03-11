@@ -31,6 +31,19 @@ struct SettingsSheetView: View {
         AppAppearancePreference.from(rawValue: appearancePreferenceRawValue)
     }
 
+    private var resolvedParallaxVariant: SettingsParallaxIllustrationView.Variant {
+        let systemVariant: SettingsParallaxIllustrationView.Variant = theme.variant == .dark ? .dark : .light
+
+        switch selectedAppearancePreference {
+        case .light:
+            return .light
+        case .dark:
+            return .dark
+        case .system:
+            return systemVariant
+        }
+    }
+
     private var mailRecipient: String { "hi@sergy.xyz" }
     private var mailSubject: String { "Timie — Contact" }
     private var appVersion: String {
@@ -127,7 +140,8 @@ struct SettingsSheetView: View {
     
 
     private var heroSection: some View {
-        SettingsParallaxIllustrationView()
+        SettingsParallaxIllustrationView(variant: resolvedParallaxVariant)
+            .id("settings-parallax-\(resolvedParallaxVariant.rawValue)")
             .frame(maxWidth: .infinity)
             .accessibilityHidden(true)
             .frame(maxWidth: .infinity, alignment: .top)

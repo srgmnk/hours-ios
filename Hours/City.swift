@@ -10,7 +10,11 @@ struct CanonicalCity: Identifiable, Equatable, Hashable, Codable {
     }
 
     init(id: String? = nil, name: String, timeZoneID: String) {
-        self.id = id ?? timeZoneID
+        self.id = id ?? CitySearchItem.makeCanonicalIdentity(
+            city: name,
+            country: "",
+            timeZoneIdentifier: timeZoneID
+        )
         self.name = name
         self.timeZoneID = timeZoneID
     }
