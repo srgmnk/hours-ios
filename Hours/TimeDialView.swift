@@ -11,6 +11,7 @@ struct TimeDialView: View {
     let rotationDegrees: Double
     let stepIndex: Int // relStep: +future, -past
     let resetSignal: Int
+    let maxInteractiveGlobalY: CGFloat
     let onDragBegan: () -> Void
     let onDragChanged: (Double) -> Void
     let onDragEnded: (Double, Double) -> Void
@@ -31,42 +32,22 @@ struct TimeDialView: View {
             offsetStepsSigned: offsetStepsSigned
         )
 
-        ZStack {
-            Canvas { context, size in
-                let center = CGPoint(x: size.width / 2, y: size.height / 2)
-                let outerRadius = (diameter / 2) - 16
-                let tenMinuteLength: CGFloat = 16
-                let hourLength: CGFloat = 24
-                let fiveMinuteLength: CGFloat = tenMinuteLength / 2
-                let minorWidth: CGFloat = 1
-                let majorWidth: CGFloat = 1
+        GeometryReader { geometry in
+            ZStack {
+                Canvas { context, size in
+                    let center = CGPoint(x: size.width / 2, y: size.height / 2)
+                    let outerRadius = (diameter / 2) - 16
+                    let tenMinuteLength: CGFloat = 16
+                    let hourLength: CGFloat = 24
+                    let fiveMinuteLength: CGFloat = tenMinuteLength / 2
+                    let minorWidth: CGFloat = 1
+                    let majorWidth: CGFloat = 1
 
-                let degreesPerTick = 360.0 / Double(Self.tickCount)
+                    let degreesPerTick = 360.0 / Double(Self.tickCount)
 
-                // Layer 1: base ticks in gray.
-                for tick in 0..<Self.tickCount {
-                    let baseLineWidth: CGFloat = (tick == centerTickIndex) ? 1.5 : 1
-                    let tickPath = Self.tickPath(
-                        tick: tick,
-                        center: center,
-                        outerRadius: outerRadius,
-                        fiveMinuteLength: fiveMinuteLength,
-                        tenMinuteLength: tenMinuteLength,
-                        hourLength: hourLength,
-                        minorWidth: minorWidth,
-                        majorWidth: majorWidth,
-                        lineWidth: baseLineWidth,
-                        degreesPerTick: degreesPerTick,
-                        rotationDegrees: rotationDegrees
-                    )
-                    context.fill(tickPath, with: .color(defaultTickColor))
-                }
-
-                // Layer 2: filled ticks overpainted with sign-based color.
-                if offsetMinutes != 0 {
+                    // Layer 1: base ticks in gray.
                     for tick in 0..<Self.tickCount {
-                        guard filledSet.contains(tick) else { continue }
-                        let activeLineWidth: CGFloat = (tick == centerTickIndex || tick.isMultiple(of: Self.hourTickInterval)) ? 1.5 : 1
+                        let baseLineWidth: CGFloat = (tick == centerTickIndex) ? 1.5 : 1
                         let tickPath = Self.tickPath(
                             tick: tick,
                             center: center,
@@ -76,49 +57,99 @@ struct TimeDialView: View {
                             hourLength: hourLength,
                             minorWidth: minorWidth,
                             majorWidth: majorWidth,
-                            lineWidth: activeLineWidth,
+                            lineWidth: baseLineWidth,
                             degreesPerTick: degreesPerTick,
                             rotationDegrees: rotationDegrees
                         )
-                        context.fill(tickPath, with: .color(fillColor))
+                        context.fill(tickPath, with: .color(defaultTickColor))
+                    }
+
+                    // Layer 2: filled ticks overpainted with sign-based color.
+                    if offsetMinutes != 0 {
+                        for tick in 0..<Self.tickCount {
+                            guard filledSet.contains(tick) else { continue }
+                            let activeLineWidth: CGFloat = (tick == centerTickIndex || tick.isMultiple(of: Self.hourTickInterval)) ? 1.5 : 1
+                            let tickPath = Self.tickPath(
+                                tick: tick,
+                                center: center,
+                                outerRadius: outerRadius,
+                                fiveMinuteLength: fiveMinuteLength,
+                                tenMinuteLength: tenMinuteLength,
+                                hourLength: hourLength,
+                                minorWidth: minorWidth,
+                                majorWidth: majorWidth,
+                                lineWidth: activeLineWidth,
+                                degreesPerTick: degreesPerTick,
+                                rotationDegrees: rotationDegrees
+                            )
+                            context.fill(tickPath, with: .color(fillColor))
+                        }
                     }
                 }
+                .frame(width: diameter, height: diameter)
             }
             .frame(width: diameter, height: diameter)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let frame = geometry.frame(in: .global)
+                        guard !Self.isInBottomDeadZone(value.startLocation, frame: frame, maxInteractiveGlobalY: maxInteractiveGlobalY) else {
+                            return
+                        }
+
+                        onDragBegan()
+                        let center = CGPoint(x: diameter / 2, y: diameter / 2)
+                        let clampedLocation = Self.clampedPoint(
+                            value.location,
+                            frame: frame,
+                            maxInteractiveGlobalY: maxInteractiveGlobalY
+                        )
+                        let angle = Self.angleDegrees(point: clampedLocation, center: center)
+
+                        if dragStartAngle == nil {
+                            dragStartAngle = angle
+                            startRotationDegrees = rotationDegrees
+                        }
+
+                        guard let dragStartAngle else { return }
+                        let diff = Self.normalizedDeltaDegrees(from: dragStartAngle, to: angle)
+                        let currentRotation = startRotationDegrees + diff
+                        onDragChanged(currentRotation)
+                    }
+                    .onEnded { value in
+                        let frame = geometry.frame(in: .global)
+                        guard !Self.isInBottomDeadZone(value.startLocation, frame: frame, maxInteractiveGlobalY: maxInteractiveGlobalY),
+                              let dragStartAngle else {
+                            self.dragStartAngle = nil
+                            return
+                        }
+
+                        let center = CGPoint(x: diameter / 2, y: diameter / 2)
+                        let currentLocation = Self.clampedPoint(
+                            value.location,
+                            frame: frame,
+                            maxInteractiveGlobalY: maxInteractiveGlobalY
+                        )
+                        let predictedLocation = Self.clampedPoint(
+                            value.predictedEndLocation,
+                            frame: frame,
+                            maxInteractiveGlobalY: maxInteractiveGlobalY
+                        )
+                        let currentAngle = Self.angleDegrees(point: currentLocation, center: center)
+                        let predictedAngle = Self.angleDegrees(point: predictedLocation, center: center)
+                        let currentDiff = Self.normalizedDeltaDegrees(from: dragStartAngle, to: currentAngle)
+                        let predictedDiff = Self.normalizedDeltaDegrees(from: dragStartAngle, to: predictedAngle)
+                        let currentRotation = startRotationDegrees + currentDiff
+                        let predictedRotation = startRotationDegrees + predictedDiff
+
+                        self.dragStartAngle = nil
+                        startRotationDegrees = currentRotation
+                        onDragEnded(currentRotation, predictedRotation)
+                    }
+            )
         }
         .frame(width: diameter, height: diameter)
-        .contentShape(Rectangle())
-        .gesture(
-            DragGesture(minimumDistance: 0)
-                .onChanged { value in
-                    onDragBegan()
-                    let center = CGPoint(x: diameter / 2, y: diameter / 2)
-                    let angle = Self.angleDegrees(point: value.location, center: center)
-
-                    if dragStartAngle == nil {
-                        dragStartAngle = angle
-                        startRotationDegrees = rotationDegrees
-                    }
-
-                    guard let dragStartAngle else { return }
-                    let diff = Self.normalizedDeltaDegrees(from: dragStartAngle, to: angle)
-                    let currentRotation = startRotationDegrees + diff
-                    onDragChanged(currentRotation)
-                }
-                .onEnded { value in
-                    let center = CGPoint(x: diameter / 2, y: diameter / 2)
-                    let currentAngle = Self.angleDegrees(point: value.location, center: center)
-                    let predictedAngle = Self.angleDegrees(point: value.predictedEndLocation, center: center)
-                    let currentDiff = Self.normalizedDeltaDegrees(from: dragStartAngle ?? currentAngle, to: currentAngle)
-                    let predictedDiff = Self.normalizedDeltaDegrees(from: dragStartAngle ?? currentAngle, to: predictedAngle)
-                    let currentRotation = startRotationDegrees + currentDiff
-                    let predictedRotation = startRotationDegrees + predictedDiff
-
-                    dragStartAngle = nil
-                    startRotationDegrees = currentRotation
-                    onDragEnded(currentRotation, predictedRotation)
-                }
-        )
         .onChange(of: resetSignal) { _, _ in
             dragStartAngle = nil
             startRotationDegrees = rotationDegrees
@@ -136,6 +167,23 @@ struct TimeDialView: View {
         while delta > 180 { delta -= 360 }
         while delta < -180 { delta += 360 }
         return delta
+    }
+
+    private static func isInBottomDeadZone(
+        _ point: CGPoint,
+        frame: CGRect,
+        maxInteractiveGlobalY: CGFloat
+    ) -> Bool {
+        (frame.minY + point.y) > maxInteractiveGlobalY
+    }
+
+    private static func clampedPoint(
+        _ point: CGPoint,
+        frame: CGRect,
+        maxInteractiveGlobalY: CGFloat
+    ) -> CGPoint {
+        let maxLocalY = maxInteractiveGlobalY - frame.minY
+        return CGPoint(x: point.x, y: min(point.y, maxLocalY))
     }
 
     private static func tickIndex(for relativeStep: Int, centerTickIndex: Int) -> Int {

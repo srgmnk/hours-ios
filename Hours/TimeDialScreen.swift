@@ -236,6 +236,7 @@ struct TimeDialScreen: View {
                 rotationDegrees: viewModel.rotationDegrees,
                 stepIndex: viewModel.dialSteps,
                 resetSignal: viewModel.resetSignal,
+                maxInteractiveGlobalY: geo.frame(in: .global).maxY - 16,
                 onDragBegan: {
                     guard !isDraggingSessionActive else { return }
                     isDraggingSessionActive = true
