@@ -75,8 +75,8 @@ struct HoursWidgetEntryView: View {
 
     private func cityContent(for city: HoursWidgetCityRecord) -> some View {
         VStack(spacing: 0) {
-            Image(systemName: isDay(for: city, at: entry.date) ? "sun.max.fill" : "moon.fill")
-                .font(.system(size: 11, weight: .medium))
+            Image(systemName: isDay(for: city, at: entry.date) ? "sun.max.fill" : "moon.stars.fill")
+                .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(.white.opacity(0.42))
                 .padding(.bottom, 1)
 
@@ -130,7 +130,7 @@ struct HoursWidgetEntryView: View {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = city.timeZone
         let hour = calendar.component(.hour, from: date)
-        return (6..<18).contains(hour)
+        return (8..<20).contains(hour)
     }
 
     private func cityAbbreviation(for city: HoursWidgetCityRecord) -> String {
