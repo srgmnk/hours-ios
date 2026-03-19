@@ -58,7 +58,7 @@ struct CityCardView: View {
 
     private var deltaText: String {
         if isCurrent {
-            return "Current"
+            return "Primary"
         }
         return deltaDisplay?.text ?? "0h"
     }
@@ -299,7 +299,7 @@ struct CityCardView: View {
 
     private var deltaAccessibilityLabel: String {
         if isCurrent {
-            return "Current"
+            return "Primary"
         }
 
         let hoursText = deltaText.replacingOccurrences(of: ":", with: " hours ")
