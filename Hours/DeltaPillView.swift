@@ -11,7 +11,7 @@ struct DeltaPillView: View {
 
     let mode: PillMode
     let deltaText: String
-    let onDoubleTapReset: () -> Void
+    let onTapReset: () -> Void
 
     private let pillShape = RoundedRectangle(cornerRadius: 100, style: .continuous)
     private var appearance: DialPillAppearance {
@@ -37,8 +37,8 @@ struct DeltaPillView: View {
             .fixedSize(horizontal: true, vertical: false)
             .modifier(PillGlassEffectModifier(appearance: appearance, shape: pillShape))
             .contentShape(pillShape)
-            .highPriorityGesture(TapGesture(count: 2).onEnded {
-                onDoubleTapReset()
+            .highPriorityGesture(TapGesture().onEnded {
+                onTapReset()
             })
     }
 

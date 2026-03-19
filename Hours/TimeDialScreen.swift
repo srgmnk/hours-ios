@@ -261,7 +261,7 @@ struct TimeDialScreen: View {
             DeltaPillView(
                 mode: pillMode,
                 deltaText: absDeltaString,
-                onDoubleTapReset: resetToNow
+                onTapReset: resetToNow
             )
             .padding(.bottom, 32)
             .allowsHitTesting(true)
