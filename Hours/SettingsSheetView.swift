@@ -16,7 +16,7 @@ struct SettingsSheetView: View {
     @State private var isMailComposerPresented = false
 
     private let linkRows = [
-        (title: "Rate on the App Store", trailing: RowTrailing.text("ver 1.0.1")),
+        (title: "Rate on the App Store", trailing: RowTrailing.text("ver 1.0.2")),
         (title: "Contact Me", trailing: RowTrailing.text("Any suggestions?")),
         (title: "Privacy Policy", trailing: RowTrailing.symbol("arrow.up.forward")),
         (title: "Terms & Conditions", trailing: RowTrailing.symbol("arrow.up.forward"))
