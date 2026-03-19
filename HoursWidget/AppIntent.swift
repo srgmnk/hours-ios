@@ -2,6 +2,46 @@ import AppIntents
 import Foundation
 import WidgetKit
 
+private enum WidgetCustomReferenceTimeZoneResolver {
+    static func resolved(identifier: String) -> TimeZone? {
+        let lowercased = identifier.lowercased()
+
+        if lowercased == "custom.utc" || lowercased == "etc/utc" || lowercased == "utc" {
+            return TimeZone(secondsFromGMT: 0)
+        }
+        if lowercased == "custom.gmt" || lowercased == "gmt" {
+            return TimeZone(secondsFromGMT: 0)
+        }
+
+        for family in ["utc", "gmt"] {
+            let prefix = "custom.\(family).offset."
+            guard lowercased.hasPrefix(prefix) else { continue }
+
+            let offsetComponent = String(lowercased.dropFirst(prefix.count))
+            guard let secondsFromGMT = secondsFromGMT(offsetComponent) else { return nil }
+            return TimeZone(secondsFromGMT: secondsFromGMT)
+        }
+
+        return TimeZone(identifier: identifier)
+    }
+
+    private static func secondsFromGMT(_ offsetComponent: String) -> Int? {
+        guard offsetComponent.count == 6 else { return nil }
+        guard let sign = offsetComponent.first, sign == "+" || sign == "-" else { return nil }
+
+        let raw = String(offsetComponent.dropFirst())
+        let pieces = raw.split(separator: ":")
+        guard pieces.count == 2,
+              let hours = Int(pieces[0]),
+              let minutes = Int(pieces[1]) else {
+            return nil
+        }
+
+        let totalSeconds = (hours * 3600) + (minutes * 60)
+        return sign == "-" ? -totalSeconds : totalSeconds
+    }
+}
+
 enum HoursWidgetSharedStore {
     static let appGroupIdentifier = "group.ai.srgmnk.hours"
     static let citiesKey = "widget.savedCities"
@@ -20,7 +60,7 @@ struct HoursWidgetCityRecord: Codable, Hashable, Sendable {
     }
 
     var timeZone: TimeZone {
-        TimeZone(identifier: timeZoneIdentifier) ?? .current
+        WidgetCustomReferenceTimeZoneResolver.resolved(identifier: timeZoneIdentifier) ?? .current
     }
 }
 
@@ -93,7 +133,7 @@ struct HoursWidgetCityEntity: AppEntity, Identifiable, Hashable, Sendable {
     var displayRepresentation: DisplayRepresentation {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm"
-        formatter.timeZone = TimeZone(identifier: timeZoneIdentifier) ?? .current
+        formatter.timeZone = WidgetCustomReferenceTimeZoneResolver.resolved(identifier: timeZoneIdentifier) ?? .current
         
         let timeString = formatter.string(from: Date())
         

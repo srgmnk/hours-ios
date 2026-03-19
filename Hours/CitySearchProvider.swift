@@ -494,18 +494,18 @@ final class CitySearchProvider {
             id: "custom.utc",
             city: "UTC",
             country: "",
-            timeZoneIdentifier: "Etc/UTC",
+            timeZoneIdentifier: CustomReferenceOffsetOption.zero(for: .utc).timeZoneIdentifier,
             aliases: ["coordinated universal time", "zulu", "utc+0", "utc 0"],
-            canonicalID: "custom.utc",
+            canonicalID: CustomReferenceOffsetOption.zero(for: .utc).canonicalID,
             specialReferenceKind: .utc
         ),
         CitySearchItem(
             id: "custom.gmt",
             city: "GMT",
             country: "",
-            timeZoneIdentifier: "GMT",
+            timeZoneIdentifier: CustomReferenceOffsetOption.zero(for: .gmt).timeZoneIdentifier,
             aliases: ["greenwich mean time", "gmt+0", "gmt 0"],
-            canonicalID: "custom.gmt",
+            canonicalID: CustomReferenceOffsetOption.zero(for: .gmt).canonicalID,
             specialReferenceKind: .gmt
         )
     ]

@@ -5,13 +5,17 @@ struct CitySearchItem: Identifiable, Codable, Hashable {
         case utc
         case gmt
 
-        var descriptiveName: String {
+        var family: CustomReferenceFamily {
             switch self {
             case .utc:
-                return "Coordinated Universal Time"
+                return .utc
             case .gmt:
-                return "Greenwich Mean Time"
+                return .gmt
             }
+        }
+
+        var descriptiveName: String {
+            family.descriptiveName
         }
     }
 
@@ -47,12 +51,7 @@ struct CitySearchItem: Identifiable, Codable, Hashable {
         }
 
         if let specialReferenceKind {
-            switch specialReferenceKind {
-            case .utc:
-                return "custom.utc"
-            case .gmt:
-                return "custom.gmt"
-            }
+            return CustomReferenceOffsetOption.zero(for: specialReferenceKind.family).canonicalID
         }
 
         return Self.makeCanonicalIdentity(
@@ -71,7 +70,7 @@ struct CitySearchItem: Identifiable, Codable, Hashable {
     }
 
     func utcOffsetText(referenceDate: Date = Date()) -> String {
-        guard let timeZone = TimeZone(identifier: timeZoneIdentifier) else {
+        guard let timeZone = TimeZone.hoursResolved(identifier: timeZoneIdentifier) else {
             return "UTC"
         }
         return CityTimeFormatter.formatUTCOffset(referenceDate, in: timeZone)

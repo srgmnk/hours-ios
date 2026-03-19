@@ -150,15 +150,14 @@ final class CityStore: ObservableObject {
     }
 
     private func customReferenceCanonicalIDIfNeeded(for city: City) -> String? {
-        let canonicalID = city.id.lowercased()
-        let timeZoneID = city.timeZoneID.lowercased()
+        if let customReferenceID = CustomReferenceOffsetOption.from(canonicalID: city.id)?.canonicalID {
+            return customReferenceID
+        }
 
-        if canonicalID == "custom.utc" || timeZoneID == "etc/utc" || timeZoneID == "utc" {
-            return "custom.utc"
+        if let customReferenceID = CustomReferenceOffsetOption.from(timeZoneIdentifier: city.timeZoneID)?.canonicalID {
+            return customReferenceID
         }
-        if canonicalID == "custom.gmt" || timeZoneID == "gmt" {
-            return "custom.gmt"
-        }
+
         return nil
     }
 

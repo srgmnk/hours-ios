@@ -1065,13 +1065,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
 
 private extension City {
     var isZeroOffsetReferenceCity: Bool {
-        let canonicalID = id.lowercased()
-        if canonicalID == "custom.utc" || canonicalID == "custom.gmt" {
-            return true
-        }
-
-        let timeZoneID = timeZoneID.lowercased()
-        return timeZoneID == "etc/utc" || timeZoneID == "utc" || timeZoneID == "gmt"
+        CustomReferenceOffsetOption.from(canonicalID: id) != nil ||
+            CustomReferenceOffsetOption.from(timeZoneIdentifier: timeZoneID) != nil
     }
 }
 

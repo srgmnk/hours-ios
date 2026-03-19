@@ -12,7 +12,26 @@ struct AddCitySheetView: View {
     @State private var results: [CitySearchItem] = []
     @State private var searchTask: Task<Void, Never>?
     @State private var isSearchFieldFocused = false
+    @State private var selectedUTCOffset = CustomReferenceOffsetOption.zero(for: .utc)
+    @State private var selectedGMTOffset = CustomReferenceOffsetOption.zero(for: .gmt)
+    @State private var activeCustomReferenceSelector: ActiveCustomReferenceSelector?
     @StateObject private var currentLocationProvider = CurrentLocationCityProvider()
+
+    private enum ActiveCustomReferenceSelector: String, Identifiable {
+        case utc
+        case gmt
+
+        var id: String { rawValue }
+
+        var kind: CitySearchItem.SpecialReferenceKind {
+            switch self {
+            case .utc:
+                return .utc
+            case .gmt:
+                return .gmt
+            }
+        }
+    }
 
     private struct DisplayResult: Identifiable {
         let item: CitySearchItem?
@@ -87,52 +106,21 @@ struct AddCitySheetView: View {
                 ForEach(Array(visibleSections.enumerated()), id: \.element.id) { sectionIndex, section in
                     ForEach(Array(section.results.enumerated()), id: \.element.id) { rowIndex, displayResult in
                         let item = displayResult.item
+                        let resolvedItem = resolvedItem(for: item)
                         let isCurrentLocationRow = displayResult.isCurrentLocation
                         let isLocationLoadingRow = isCurrentLocationRow && item == nil
-                        let isAlreadyAdded = item.map { existingCanonicalIDs.contains($0.canonicalIdentity) } ?? false
+                        let isAlreadyAdded = resolvedItem.map { existingCanonicalIDs.contains($0.canonicalIdentity) } ?? false
 
-                        Button {
-                            searchTask?.cancel()
-
-                            guard let item else { return }
-
-                            guard !isAlreadyAdded else {
-                                dismiss()
-                                return
-                            }
-
-                            let generator = UINotificationFeedbackGenerator()
-                            generator.notificationOccurred(.success)
-                            onSelect(item)
-                            dismiss()
-                        } label: {
-                            HStack(alignment: .center, spacing: 12) {
-                                Text(rowPrimaryText(for: item, isCurrentLocationLoadingRow: isLocationLoadingRow))
-                                    .font(.system(size: 16, weight: .medium))
-                                    .foregroundStyle(theme.textPrimary)
-                                    .lineLimit(1)
-                                    .opacity(isLocationLoadingRow ? 0.2 : 1)
-                                    .modifier(LocationPlaceholderShimmer(isActive: isLocationLoadingRow))
-
-                                Spacer(minLength: 8)
-
-                                CitySearchRowLabel(
-                                    kind: rowLabelKind(
-                                        for: item,
-                                        isCurrentLocationRow: isCurrentLocationRow,
-                                        isAlreadyAdded: isAlreadyAdded,
-                                        referenceDate: referenceDate
-                                    )
-                                )
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 22)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(rowBackground(for: rowIndex, total: section.results.count))
-                            .padding(.bottom, rowIndex == section.results.count - 1 ? 0 : rowSeparatorHeight)
-                        }
-                        .buttonStyle(.plain)
-                        .contentShape(Rectangle())
+                        rowView(
+                            item: item,
+                            resolvedItem: resolvedItem,
+                            isCurrentLocationRow: isCurrentLocationRow,
+                            isLocationLoadingRow: isLocationLoadingRow,
+                            isAlreadyAdded: isAlreadyAdded,
+                            referenceDate: referenceDate,
+                            rowIndex: rowIndex,
+                            totalRows: section.results.count
+                        )
                         .listRowInsets(EdgeInsets())
                         .listRowSeparator(.hidden)
                         .listRowBackground(Color.clear)
@@ -200,6 +188,18 @@ struct AddCitySheetView: View {
         .onDisappear {
             searchTask?.cancel()
             isSearchFieldFocused = false
+        }
+        .sheet(item: $activeCustomReferenceSelector) { selector in
+            CustomReferenceOffsetSelectorSheet(
+                title: "Select \(selector.kind.family.code) Offset",
+                options: CustomReferenceOffsetOption.supportedOptions(for: selector.kind.family),
+                selectedOption: selectedOffset(for: selector.kind),
+                onSelect: { option in
+                    updateSelectedOffset(option)
+                }
+            )
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.hidden)
         }
     }
 
@@ -286,7 +286,7 @@ struct AddCitySheetView: View {
     }
 
     private func utcOffsetText(for timeZoneIdentifier: String, referenceDate: Date) -> String {
-        guard let timeZone = TimeZone(identifier: timeZoneIdentifier) else {
+        guard let timeZone = TimeZone.hoursResolved(identifier: timeZoneIdentifier) else {
             return "UTC"
         }
 
@@ -331,17 +331,266 @@ struct AddCitySheetView: View {
             return .myLocation
         }
         guard let item else {
-            return .utc("UTC")
+            return .none
         }
         if isAlreadyAdded {
             return .added
         }
-        if item.specialReferenceKind != nil {
-            return .utc(item.city)
-        }
         return .utc(utcOffsetText(for: item.timeZoneIdentifier, referenceDate: referenceDate))
     }
 
+    private func selectedOffset(for specialReferenceKind: CitySearchItem.SpecialReferenceKind) -> CustomReferenceOffsetOption {
+        switch specialReferenceKind {
+        case .utc:
+            return selectedUTCOffset
+        case .gmt:
+            return selectedGMTOffset
+        }
+    }
+
+    private func updateSelectedOffset(_ option: CustomReferenceOffsetOption) {
+        switch option.family {
+        case .utc:
+            selectedUTCOffset = option
+        case .gmt:
+            selectedGMTOffset = option
+        }
+    }
+
+    private func resolvedItem(for item: CitySearchItem?) -> CitySearchItem? {
+        guard let item else { return nil }
+        guard let specialReferenceKind = item.specialReferenceKind else { return item }
+
+        let option = selectedOffset(for: specialReferenceKind)
+        return CitySearchItem(
+            id: option.canonicalID,
+            city: option.cityName,
+            country: "",
+            timeZoneIdentifier: option.timeZoneIdentifier,
+            aliases: item.aliases,
+            canonicalID: option.canonicalID,
+            specialReferenceKind: specialReferenceKind
+        )
+    }
+
+    private func handleSelection(of item: CitySearchItem?, isAlreadyAdded: Bool) {
+        searchTask?.cancel()
+
+        guard let item else { return }
+
+        guard !isAlreadyAdded else {
+            dismiss()
+            return
+        }
+
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(.success)
+        onSelect(item)
+        dismiss()
+    }
+
+    @ViewBuilder
+    private func rowView(
+        item: CitySearchItem?,
+        resolvedItem: CitySearchItem?,
+        isCurrentLocationRow: Bool,
+        isLocationLoadingRow: Bool,
+        isAlreadyAdded: Bool,
+        referenceDate: Date,
+        rowIndex: Int,
+        totalRows: Int
+    ) -> some View {
+        let primaryText = rowPrimaryText(for: item, isCurrentLocationLoadingRow: isLocationLoadingRow)
+
+        if let specialReferenceKind = item?.specialReferenceKind, !isCurrentLocationRow {
+            HStack(alignment: .center, spacing: 16) {
+                Button {
+                    handleSelection(of: resolvedItem, isAlreadyAdded: isAlreadyAdded)
+                } label: {
+                    Text(primaryText)
+                        .font(.system(size: 16, weight: .medium))
+                        .tracking(-0.48)
+                        .foregroundStyle(theme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .contentShape(Rectangle())
+
+                customReferenceMenu(for: specialReferenceKind)
+            }
+            .padding(.leading, 20)
+            .padding(.trailing, 8)
+            .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            .background(rowBackground(for: rowIndex, total: totalRows))
+            .padding(.bottom, rowIndex == totalRows - 1 ? 0 : rowSeparatorHeight)
+        } else {
+            Button {
+                handleSelection(of: resolvedItem, isAlreadyAdded: isAlreadyAdded)
+            } label: {
+                HStack(alignment: .center, spacing: 16) {
+                    Text(primaryText)
+                        .font(.system(size: 16, weight: .medium))
+                        .tracking(-0.48)
+                        .foregroundStyle(theme.textPrimary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
+                        .opacity(isLocationLoadingRow ? 0.2 : 1)
+                        .modifier(LocationPlaceholderShimmer(isActive: isLocationLoadingRow))
+
+                    Spacer(minLength: 0)
+
+                    CitySearchRowLabel(
+                        kind: rowLabelKind(
+                            for: item,
+                            isCurrentLocationRow: isCurrentLocationRow,
+                            isAlreadyAdded: isAlreadyAdded,
+                            referenceDate: referenceDate
+                        )
+                    )
+                }
+                .padding(.leading, 20)
+                .padding(.trailing, 8)
+                .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                .background(rowBackground(for: rowIndex, total: totalRows))
+                .padding(.bottom, rowIndex == totalRows - 1 ? 0 : rowSeparatorHeight)
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+        }
+    }
+
+    private func customReferenceMenu(for specialReferenceKind: CitySearchItem.SpecialReferenceKind) -> some View {
+        let selectedOption = selectedOffset(for: specialReferenceKind)
+
+        return Button {
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            activeCustomReferenceSelector = specialReferenceKind == .utc ? .utc : .gmt
+        } label: {
+            HStack(spacing: 4) {
+                Text(selectedOption.selectionLabel)
+                    .font(.system(size: 16, weight: .medium))
+                    .tracking(-0.48)
+                    .foregroundStyle(theme.textPrimary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(theme.tagNeutralText)
+            }
+            .padding(.leading, 16)
+            .padding(.trailing, 12)
+            .frame(height: 48)
+            .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(theme.surfaceControl)
+            )
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
+    }
+
+}
+
+private struct CustomReferenceOffsetSelectorSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.displayScale) private var displayScale
+    @Environment(\.appTheme) private var theme
+
+    let title: String
+    let options: [CustomReferenceOffsetOption]
+    let selectedOption: CustomReferenceOffsetOption
+    let onSelect: (CustomReferenceOffsetOption) -> Void
+
+    private var rowSeparatorHeight: CGFloat {
+        3 / max(displayScale, 1)
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(Array(options.enumerated()), id: \.element.id) { index, option in
+                    Button {
+                        let generator = UIImpactFeedbackGenerator(style: .medium)
+                        generator.impactOccurred()
+                        onSelect(option)
+                        dismiss()
+                    } label: {
+                        HStack(spacing: 16) {
+                            Text(option.selectionLabel)
+                                .font(.system(size: 16, weight: .medium))
+                                .tracking(-0.48)
+                                .foregroundStyle(theme.textPrimary)
+                                .lineLimit(1)
+
+                            Spacer(minLength: 0)
+
+                            if option == selectedOption {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(theme.tagNeutralText)
+                            }
+                        }
+                        .padding(.leading, 20)
+                        .padding(.trailing, 20)
+                        .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+                        .background(rowBackground(for: index, total: options.count))
+                        .padding(.bottom, index == options.count - 1 ? 0 : rowSeparatorHeight)
+                    }
+                    .buttonStyle(.plain)
+                    .contentShape(Rectangle())
+                    .listRowInsets(EdgeInsets())
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
+                }
+            }
+            .environment(\.defaultMinListRowHeight, 0)
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(SheetStyle.appScreenBackground(for: theme))
+            .padding(.horizontal, 8)
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .medium))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .background(SheetStyle.appScreenBackground(for: theme).ignoresSafeArea())
+    }
+
+    @ViewBuilder
+    private func rowBackground(for index: Int, total: Int) -> some View {
+        if total <= 1 {
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(SheetStyle.groupedRowBackground(for: theme))
+        } else if index == 0 {
+            UnevenRoundedRectangle(
+                cornerRadii: .init(topLeading: 24, bottomLeading: 0, bottomTrailing: 0, topTrailing: 24),
+                style: .continuous
+            )
+            .fill(SheetStyle.groupedRowBackground(for: theme))
+        } else if index == total - 1 {
+            UnevenRoundedRectangle(
+                cornerRadii: .init(topLeading: 0, bottomLeading: 24, bottomTrailing: 24, topTrailing: 0),
+                style: .continuous
+            )
+            .fill(SheetStyle.groupedRowBackground(for: theme))
+        } else {
+            Rectangle()
+                .fill(SheetStyle.groupedRowBackground(for: theme))
+        }
+    }
 }
 
 private struct LocationPlaceholderShimmer: ViewModifier {
@@ -496,34 +745,34 @@ private struct CitySearchRowLabel: View {
             EmptyView()
         } else if case .locationLoading = kind {
             Image(systemName: "rays")
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 16, weight: .regular))
                 .foregroundStyle(textColor)
                 .lineLimit(1)
-                .padding(.horizontal, 8)
-                .frame(height: 28)
+                .padding(.horizontal, 16)
+                .frame(height: 48)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(backgroundColor)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(borderColor, lineWidth: 1)
                 )
         } else {
             Text(text)
-                .font(.system(size: 14, weight: .regular))
-                .tracking(-0.42)
+                .font(.system(size: 16, weight: .regular))
+                .tracking(-0.48)
                 .foregroundStyle(textColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .padding(.horizontal, 8)
-                .frame(height: 28)
+                .padding(.horizontal, 16)
+                .frame(height: 48)
                 .background(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(backgroundColor)
                 )
                 .overlay(
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .stroke(borderColor, lineWidth: 1)
                 )
         }

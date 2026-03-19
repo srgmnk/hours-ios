@@ -35,13 +35,8 @@ struct CityCardView: View {
     }
 
     private var isZeroOffsetReferenceCity: Bool {
-        let canonicalID = city.id.lowercased()
-        if canonicalID == "custom.utc" || canonicalID == "custom.gmt" {
-            return true
-        }
-
-        let timeZoneID = city.timeZoneID.lowercased()
-        return timeZoneID == "etc/utc" || timeZoneID == "utc" || timeZoneID == "gmt"
+        CustomReferenceOffsetOption.from(canonicalID: city.id) != nil ||
+            CustomReferenceOffsetOption.from(timeZoneIdentifier: city.timeZoneID) != nil
     }
 
     private var deltaDisplay: (isPositive: Bool, text: String)? {
