@@ -52,6 +52,9 @@ struct SettingsSheetView: View {
 
     private var mailRecipient: String { "hi@sergy.xyz" }
     private var mailSubject: String { "Hours — Contact" }
+    private var appStoreReviewURL: URL {
+        URL(string: "https://apps.apple.com/app/id6760683802?action=write-review")!
+    }
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
     }
@@ -346,6 +349,8 @@ struct SettingsSheetView: View {
             ForEach(Array(linkRows.enumerated()), id: \.offset) { index, row in
                 let onTapHandler: (() -> Void)? = {
                     switch row.title {
+                    case "Rate on the App Store":
+                        openURL(appStoreReviewURL)
                     case "Contact Me":
                         presentContactMe()
                     case "Privacy Policy":
