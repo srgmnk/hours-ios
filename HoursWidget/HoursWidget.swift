@@ -139,16 +139,9 @@ struct HoursWidgetEntryView: View {
 
     static func cityAbbreviation(from rawName: String) -> String {
         let trimmedName = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedName.isEmpty else { return "---" }
+        guard !trimmedName.isEmpty else { return "–––" }
 
-        let letters = trimmedName.filter(\.isLetter)
-        if !letters.isEmpty {
-            let prefix = String(letters.prefix(3))
-            return prefix.lowercased().capitalized
-        }
-
-        let fallback = String(trimmedName.prefix(3))
-        return fallback.lowercased().capitalized
+        return String(trimmedName.prefix(8))
     }
 }
 

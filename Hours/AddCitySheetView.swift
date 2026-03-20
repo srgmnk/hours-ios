@@ -10,6 +10,7 @@ struct AddCitySheetView: View {
     @Environment(\.appTheme) private var theme
     @State private var query = ""
     @State private var results: [CitySearchItem] = []
+    @State private var searchPhase: SearchPhase = .idle
     @State private var searchTask: Task<Void, Never>?
     @State private var isSearchFieldFocused = false
     @State private var selectedUTCOffset = CustomReferenceOffsetOption.zero(for: .utc)
@@ -50,6 +51,12 @@ struct AddCitySheetView: View {
         let results: [DisplayResult]
     }
 
+    private enum SearchPhase {
+        case idle
+        case searching
+        case completed
+    }
+
     private var trimmedQuery: String {
         query.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -59,7 +66,13 @@ struct AddCitySheetView: View {
     }
 
     private var isShowingEmptySearchState: Bool {
-        !trimmedQuery.isEmpty && results.isEmpty
+        !trimmedQuery.isEmpty &&
+            searchPhase == .completed &&
+            results.isEmpty
+    }
+
+    private var isSearchingQuery: Bool {
+        !trimmedQuery.isEmpty && searchPhase == .searching
     }
 
     private var rowSeparatorHeight: CGFloat {
@@ -208,7 +221,8 @@ struct AddCitySheetView: View {
             NativeBottomSearchTextField(
                 text: $query,
                 isFocused: $isSearchFieldFocused,
-                placeholder: "Search"
+                placeholder: "Search",
+                isSearching: isSearchingQuery
             )
             .frame(maxWidth: .infinity)
             .frame(height: 52)
@@ -236,13 +250,59 @@ struct AddCitySheetView: View {
     private func performSearch(for query: String) {
         searchTask?.cancel()
 
+        let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            results = []
+            searchPhase = .idle
+            return
+        }
+
         let local = CitySearchProvider.shared.localResults(
             matching: query,
             excluding: []
         )
         results = local
 
-        guard CitySearchProvider.shared.shouldFetchFallback(for: query, localResultCount: local.count) else {
+        let shouldFetchFallback = CitySearchProvider.shared.shouldFetchFallback(
+            for: query,
+            localResultCount: local.count
+        )
+
+        if !local.isEmpty {
+            searchPhase = .completed
+
+            guard shouldFetchFallback else { return }
+
+            searchTask = Task {
+                let merged = await CitySearchProvider.shared.fallbackMergedResults(
+                    matching: query,
+                    localResults: local,
+                    excluding: []
+                )
+
+                guard !Task.isCancelled else { return }
+                guard self.query == query else { return }
+
+                await MainActor.run {
+                    results = merged
+                }
+            }
+            return
+        }
+
+        searchPhase = .searching
+
+        guard shouldFetchFallback else {
+            searchTask = Task {
+                try? await Task.sleep(for: .milliseconds(250))
+
+                guard !Task.isCancelled else { return }
+                guard self.query == query else { return }
+
+                await MainActor.run {
+                    searchPhase = .completed
+                }
+            }
             return
         }
 
@@ -258,6 +318,7 @@ struct AddCitySheetView: View {
 
             await MainActor.run {
                 results = merged
+                searchPhase = .completed
             }
         }
     }
@@ -744,12 +805,11 @@ private struct CitySearchRowLabel: View {
         if case .none = kind {
             EmptyView()
         } else if case .locationLoading = kind {
-            Image(systemName: "rays")
-                .font(.system(size: 16, weight: .regular))
-                .foregroundStyle(textColor)
-                .lineLimit(1)
+            ProgressView()
+                .progressViewStyle(.circular)
+                .controlSize(.small)
                 .padding(.horizontal, 16)
-                .frame(height: 48)
+                .frame(minWidth: 48, minHeight: 48)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
                         .fill(backgroundColor)
@@ -783,6 +843,7 @@ private struct NativeBottomSearchTextField: UIViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     let placeholder: String
+    let isSearching: Bool
 
     func makeUIView(context: Context) -> UISearchTextField {
         let textField = UISearchTextField(frame: .zero)
@@ -796,6 +857,8 @@ private struct NativeBottomSearchTextField: UIViewRepresentable {
         textField.borderStyle = .none
         textField.backgroundColor = .clear
         textField.addTarget(context.coordinator, action: #selector(Coordinator.textDidChange(_:)), for: .editingChanged)
+        context.coordinator.defaultLeftView = textField.leftView
+        context.coordinator.defaultLeftViewMode = textField.leftViewMode
         return textField
     }
 
@@ -806,6 +869,8 @@ private struct NativeBottomSearchTextField: UIViewRepresentable {
         if uiView.placeholder != placeholder {
             uiView.placeholder = placeholder
         }
+
+        context.coordinator.updateLeadingAccessory(for: uiView, isSearching: isSearching)
 
         if isFocused {
             guard !uiView.isFirstResponder else { return }
@@ -824,10 +889,34 @@ private struct NativeBottomSearchTextField: UIViewRepresentable {
     final class Coordinator: NSObject, UITextFieldDelegate {
         @Binding private var text: String
         @Binding private var isFocused: Bool
+        var defaultLeftView: UIView?
+        var defaultLeftViewMode: UITextField.ViewMode = .always
+        let loadingIndicator: UIActivityIndicatorView = {
+            let indicator = UIActivityIndicatorView(style: .medium)
+            indicator.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+            indicator.hidesWhenStopped = true
+            return indicator
+        }()
 
         init(text: Binding<String>, isFocused: Binding<Bool>) {
             _text = text
             _isFocused = isFocused
+        }
+
+        func updateLeadingAccessory(for textField: UISearchTextField, isSearching: Bool) {
+            if isSearching {
+                if textField.leftView !== loadingIndicator {
+                    textField.leftView = loadingIndicator
+                    textField.leftViewMode = .always
+                }
+                loadingIndicator.startAnimating()
+            } else {
+                loadingIndicator.stopAnimating()
+                if textField.leftView !== defaultLeftView {
+                    textField.leftView = defaultLeftView
+                    textField.leftViewMode = defaultLeftViewMode
+                }
+            }
         }
 
         @objc func textDidChange(_ sender: UITextField) {

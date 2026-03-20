@@ -5,6 +5,51 @@ import MapKit
 final class CitySearchProvider {
     static let shared = CitySearchProvider()
 
+    private final class SearchCompleterBridge: NSObject, MKLocalSearchCompleterDelegate {
+        private let completer = MKLocalSearchCompleter()
+        private var continuation: CheckedContinuation<[MKLocalSearchCompletion], Never>?
+
+        override init() {
+            super.init()
+            completer.delegate = self
+            completer.resultTypes = [.address]
+        }
+
+        func completions(for query: String) async -> [MKLocalSearchCompletion] {
+            let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return [] }
+
+            completer.cancel()
+            finish(with: [])
+
+            return await withTaskCancellationHandler {
+                await withCheckedContinuation { continuation in
+                    self.continuation = continuation
+                    completer.queryFragment = trimmed
+                }
+            } onCancel: {
+                Task { @MainActor [weak self] in
+                    self?.completer.cancel()
+                    self?.finish(with: [])
+                }
+            }
+        }
+
+        func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+            finish(with: completer.results)
+        }
+
+        func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: any Error) {
+            finish(with: [])
+        }
+
+        private func finish(with results: [MKLocalSearchCompletion]) {
+            guard let continuation else { return }
+            self.continuation = nil
+            continuation.resume(returning: results)
+        }
+    }
+
     private struct PopularCitySeed {
         let city: String
         let country: String
@@ -24,10 +69,13 @@ final class CitySearchProvider {
     private let cityCountryToTimeZone: [String: String]
     private let zeroOffsetReferenceItems: [CitySearchItem]
     private let curatedPopularItems: [CitySearchItem]
+    private let completerBridge = SearchCompleterBridge()
 
     private let localResultLimit = 40
     private let mergedResultLimit = 60
     private let minimumGoodLocalResultCount = 5
+    private let completerQueryLengthRange = 2...6
+    private let completerResultLimit = 5
 
     private init(bundle: Bundle = .main) {
         zeroOffsetReferenceItems = Self.zeroOffsetReferenceItemsSeed
@@ -119,7 +167,8 @@ final class CitySearchProvider {
             return lhs.item.city.localizedCaseInsensitiveCompare(rhs.item.city) == .orderedAscending
         }
 
-        return Self.deduplicatedByTimeZone(sorted.map(\.item))
+        return sorted
+            .map(\.item)
             .prefix(localResultLimit)
             .map { $0 }
     }
@@ -139,6 +188,18 @@ final class CitySearchProvider {
             return localResults
         }
 
+        let normalizedQuery = Self.normalize(query)
+        if completerQueryLengthRange.contains(normalizedQuery.count) {
+            let completerResults = await completerFallbackResults(matching: query)
+            if !completerResults.isEmpty {
+                return mergeResults(
+                    localResults: localResults,
+                    fallbackResults: completerResults,
+                    excluding: existingTimeZoneIDs
+                )
+            }
+        }
+
         let fallback = await mapKitFallbackResults(
             matching: query,
             excluding: existingTimeZoneIDs,
@@ -150,6 +211,37 @@ final class CitySearchProvider {
             fallbackResults: fallback,
             excluding: existingTimeZoneIDs
         )
+    }
+
+    func completerFallbackResults(matching query: String) async -> [CitySearchItem] {
+        let completions = await completerBridge.completions(for: query)
+        guard !Task.isCancelled else { return [] }
+
+        var resolvedItems: [CitySearchItem] = []
+
+        for completion in completions.prefix(completerResultLimit) {
+            guard !Task.isCancelled else { return [] }
+
+            let request = MKLocalSearch.Request(completion: completion)
+            request.resultTypes = [.address]
+
+            let response: MKLocalSearch.Response
+            do {
+                response = try await MKLocalSearch(request: request).start()
+            } catch {
+                continue
+            }
+
+            guard !Task.isCancelled else { return [] }
+
+            for mapItem in response.mapItems {
+                guard let item = citySearchItem(from: mapItem, idPrefix: "completer") else { continue }
+                resolvedItems.append(item)
+                break
+            }
+        }
+
+        return resolvedItems
     }
 
     func canonicalItemForCurrentLocation(
@@ -239,10 +331,6 @@ final class CitySearchProvider {
         }
 
         let normalizedQuery = Self.normalize(trimmed)
-        var dedupeTimeZones = Set(localResults.map(\.timeZoneIdentifier))
-        dedupeTimeZones.formUnion(existingTimeZoneIDs)
-        var dedupeCityCountry = Set(localResults.map { Self.cityCountryKey(city: Self.normalize($0.city), country: Self.normalize($0.country)) })
-
         var candidates: [(rank: Int, item: CitySearchItem)] = []
 
         for mapItem in response.mapItems {
@@ -261,11 +349,6 @@ final class CitySearchProvider {
             }
             guard let timeZoneIdentifier = timeZoneID, !timeZoneIdentifier.isEmpty else { continue }
 
-            guard !dedupeTimeZones.contains(timeZoneIdentifier) else { continue }
-
-            let cityCountry = Self.cityCountryKey(city: Self.normalize(city), country: Self.normalize(country))
-            guard !dedupeCityCountry.contains(cityCountry) else { continue }
-
             let item = CitySearchItem(
                 id: "mapkit-\(Self.normalize(city))|\(Self.normalize(country))|\(timeZoneIdentifier)",
                 city: city,
@@ -276,8 +359,6 @@ final class CitySearchProvider {
 
             let rank = Self.fallbackRank(city: Self.normalize(city), country: Self.normalize(country), query: normalizedQuery)
             candidates.append((rank, item))
-            dedupeTimeZones.insert(timeZoneIdentifier)
-            dedupeCityCountry.insert(cityCountry)
         }
 
         return candidates
@@ -290,28 +371,40 @@ final class CitySearchProvider {
             .map(\.item)
     }
 
+    private func citySearchItem(from mapItem: MKMapItem, idPrefix: String) -> CitySearchItem? {
+        guard CLLocationCoordinate2DIsValid(mapItem.location.coordinate) else { return nil }
+
+        let city = Self.cityName(from: mapItem)
+        guard !city.isEmpty else { return nil }
+
+        let country = Self.countryName(from: mapItem)
+        guard !country.isEmpty else { return nil }
+
+        var timeZoneID = mapItem.timeZone?.identifier
+        if timeZoneID == nil {
+            let key = Self.cityCountryKey(city: Self.normalize(city), country: Self.normalize(country))
+            timeZoneID = cityCountryToTimeZone[key]
+        }
+        guard let timeZoneIdentifier = timeZoneID, !timeZoneIdentifier.isEmpty else { return nil }
+
+        return CitySearchItem(
+            id: "\(idPrefix)-\(Self.normalize(city))|\(Self.normalize(country))|\(timeZoneIdentifier)",
+            city: city,
+            country: country,
+            timeZoneIdentifier: timeZoneIdentifier,
+            aliases: []
+        )
+    }
+
     private func mergeResults(
         localResults: [CitySearchItem],
         fallbackResults: [CitySearchItem],
         excluding existingTimeZoneIDs: Set<String>
     ) -> [CitySearchItem] {
         var merged: [CitySearchItem] = []
-        var seenTimeZones = Set<String>()
-        var seenCityCountry = Set<String>()
 
         func appendIfNeeded(_ item: CitySearchItem) {
-            if existingTimeZoneIDs.contains(item.timeZoneIdentifier) { return }
-            if seenTimeZones.contains(item.timeZoneIdentifier) { return }
-
-            let cityCountry = Self.cityCountryKey(
-                city: Self.normalize(item.city),
-                country: Self.normalize(item.country)
-            )
-            if seenCityCountry.contains(cityCountry) { return }
-
             merged.append(item)
-            seenTimeZones.insert(item.timeZoneIdentifier)
-            seenCityCountry.insert(cityCountry)
         }
 
         for item in localResults {
