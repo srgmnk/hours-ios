@@ -196,7 +196,7 @@ struct TimeDialScreen: View {
                     }
                     .foregroundStyle(theme.textPrimary.opacity(0.90))
                     .frame(width: 87, height: topButtonBarHeight)
-                    .modifier(TopControlGlassModifier(shape: Capsule()))
+                    .modifier(GlassSurfaceModifier(shape: Capsule()))
                 }
                 .buttonStyle(.plain)
 
@@ -211,21 +211,11 @@ struct TimeDialScreen: View {
                         .font(.system(size: 16, weight: .medium))
                         .foregroundStyle(theme.textPrimary.opacity(0.90))
                         .frame(width: topButtonBarHeight, height: topButtonBarHeight)
-                        .modifier(TopControlGlassModifier(shape: Circle()))
+                        .modifier(GlassSurfaceModifier(shape: Circle()))
                 }
                 .buttonStyle(.plain)
             }
             .padding(.horizontal, 20)
-        }
-    }
-
-    private struct TopControlGlassModifier<S: Shape>: ViewModifier {
-        let shape: S
-
-        func body(content: Content) -> some View {
-            content
-                .contentShape(shape)
-                .glassEffect(.regular, in: shape)
         }
     }
 

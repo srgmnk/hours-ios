@@ -7,7 +7,19 @@
 import SwiftUI
 
 struct ContentView: View {
+    @AppStorage(OnboardingStorageKey.hasCompleted) private var hasCompletedOnboarding = false
+
     var body: some View {
-        TimeDialScreen()
+        ZStack {
+            TimeDialScreen()
+                .allowsHitTesting(hasCompletedOnboarding)
+
+            if !hasCompletedOnboarding {
+                OnboardingView()
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
+        }
+        .animation(.easeInOut(duration: 0.25), value: hasCompletedOnboarding)
     }
 }
