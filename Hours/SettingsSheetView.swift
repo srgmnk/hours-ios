@@ -17,13 +17,6 @@ struct SettingsSheetView: View {
     @State private var isMailComposerPresented = false
     @State private var presentedLegalDocument: LegalDocument?
 
-    private let linkRows = [
-        (title: "Rate on the App Store", trailing: RowTrailing.text("ver 1.0.3")),
-        (title: "Contact Me", trailing: RowTrailing.text("Any suggestions?")),
-        (title: "Privacy Policy", trailing: RowTrailing.symbol("arrow.up.forward")),
-        (title: "Terms of Use", trailing: RowTrailing.symbol("arrow.up.forward"))
-    ]
-
     private var selectedCityViewPreference: CityViewPreference {
         CityViewPreference.from(rawValue: cityViewPreferenceRawValue)
     }
@@ -62,6 +55,14 @@ struct SettingsSheetView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
     }
     private var appearanceSettingDescription: String { selectedAppearancePreference.displayTitle }
+    private var linkRows: [(title: String, trailing: RowTrailing)] {
+        [
+            (title: "Rate on the App Store", trailing: RowTrailing.text("ver \(appVersion).\(appBuild)")),
+            (title: "Contact Me", trailing: RowTrailing.text("Any suggestions?")),
+            (title: "Privacy Policy", trailing: RowTrailing.symbol("arrow.up.forward")),
+            (title: "Terms of Use", trailing: RowTrailing.symbol("arrow.up.forward"))
+        ]
+    }
     private var mailBody: String {
         let locale = Locale.current.identifier
         let timeZone = TimeZone.current.identifier

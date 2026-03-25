@@ -87,7 +87,8 @@ struct AddCitySheetView: View {
         }
 
         var primaryResults: [DisplayResult] = []
-        if currentLocationProvider.permissionState == .authorized {
+        if currentLocationProvider.permissionState == .authorized,
+           (currentLocationProvider.currentCityItem != nil || currentLocationProvider.isResolvingCurrentCity) {
             primaryResults.append(
                 DisplayResult(item: currentLocationProvider.currentCityItem, isCurrentLocation: true)
             )

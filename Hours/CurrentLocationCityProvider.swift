@@ -13,6 +13,7 @@ final class CurrentLocationCityProvider: NSObject, ObservableObject {
 
     @Published private(set) var currentCityItem: CitySearchItem?
     @Published private(set) var permissionState: PermissionState = .notDetermined
+    @Published private(set) var isResolvingCurrentCity = false
 
     private let locationManager = CLLocationManager()
     private var hasRequestedAuthorization = false
@@ -31,14 +32,17 @@ final class CurrentLocationCityProvider: NSObject, ObservableObject {
 
         switch locationManager.authorizationStatus {
         case .notDetermined:
+            isResolvingCurrentCity = false
             guard !hasRequestedAuthorization else { return }
             hasRequestedAuthorization = true
             locationManager.requestWhenInUseAuthorization()
         case .authorizedAlways, .authorizedWhenInUse:
             requestOneShotLocation()
         case .denied, .restricted:
+            isResolvingCurrentCity = false
             currentCityItem = nil
         @unknown default:
+            isResolvingCurrentCity = false
             currentCityItem = nil
         }
     }
@@ -59,6 +63,7 @@ final class CurrentLocationCityProvider: NSObject, ObservableObject {
     private func requestOneShotLocation() {
         guard !isRequestingLocation else { return }
         isRequestingLocation = true
+        isResolvingCurrentCity = true
         locationManager.requestLocation()
     }
 
@@ -67,6 +72,7 @@ final class CurrentLocationCityProvider: NSObject, ObservableObject {
 
         guard let request = MKReverseGeocodingRequest(location: location) else {
             isRequestingLocation = false
+            isResolvingCurrentCity = false
             currentCityItem = nil
             return
         }
@@ -84,6 +90,7 @@ final class CurrentLocationCityProvider: NSObject, ObservableObject {
 
                 self.reverseGeocodingRequest = nil
                 self.isRequestingLocation = false
+                self.isResolvingCurrentCity = false
 
                 guard
                     let mapItem = mapItems.first,
@@ -116,6 +123,7 @@ final class CurrentLocationCityProvider: NSObject, ObservableObject {
 
                 self.reverseGeocodingRequest = nil
                 self.isRequestingLocation = false
+                self.isResolvingCurrentCity = false
                 self.currentCityItem = nil
             }
         }
@@ -202,6 +210,7 @@ extension CurrentLocationCityProvider: CLLocationManagerDelegate {
         guard let location = locations.last else {
             Task { @MainActor [weak self] in
                 self?.isRequestingLocation = false
+                self?.isResolvingCurrentCity = false
             }
             return
         }
@@ -214,6 +223,8 @@ extension CurrentLocationCityProvider: CLLocationManagerDelegate {
     nonisolated func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         Task { @MainActor [weak self] in
             self?.isRequestingLocation = false
+            self?.isResolvingCurrentCity = false
+            self?.currentCityItem = nil
         }
     }
 }
