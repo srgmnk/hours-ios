@@ -41,8 +41,8 @@ struct CityDetailsView: View {
     private let sunValue = "18:42"
     private let sunSecondary = "Sunrise at 06:40"
     private let bottomLineText = "Waxing Gibbous. Next full moon in 4 days."
-    private let horizontalPadding: CGFloat = 20
-    private let cardSpacing: CGFloat = 12
+    private let horizontalPadding: CGFloat = 8
+    private let cardSpacing: CGFloat = 8
     private let cardCornerRadius: CGFloat = 20
 
     private var headerTitle: String {

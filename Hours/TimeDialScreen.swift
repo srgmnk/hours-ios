@@ -573,11 +573,14 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     private var cityViewPreference: CityViewPreference = .basic
     private var cardBackgroundColor: Color = AppTheme.light.surfaceCard
     private var isReordering = false
+    private var isTapToOpenSuppressed = false
     private var pendingExternalState: PendingExternalState?
     private var needsPostAttachReload = false
     private var draggedCityID: City.ID?
     private weak var liftedCell: CityListReorderCollectionCell?
+    private var tapSuppressionResetWorkItem: DispatchWorkItem?
     private let deleteSuccessHaptics = UINotificationFeedbackGenerator()
+    private let tapSuppressionDelay: TimeInterval = 0.2
 
     private var resolvedTheme: AppTheme {
         let colorScheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
@@ -827,6 +830,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             guard indexPath.item < citiesLocal.count else { return }
             guard collectionView.beginInteractiveMovementForItem(at: indexPath) else { return }
 
+            tapSuppressionResetWorkItem?.cancel()
+            isTapToOpenSuppressed = true
             isReordering = true
             draggedCityID = citiesLocal[indexPath.item].id
             if let cell = collectionView.cellForItem(at: indexPath) as? CityListReorderCollectionCell {
@@ -873,7 +878,19 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         }
         #endif
 
+        scheduleTapSuppressionReset()
         applyPendingExternalStateIfNeeded()
+    }
+
+    private func scheduleTapSuppressionReset() {
+        tapSuppressionResetWorkItem?.cancel()
+
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.isTapToOpenSuppressed = false
+            self?.tapSuppressionResetWorkItem = nil
+        }
+        tapSuppressionResetWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + tapSuppressionDelay, execute: workItem)
     }
 
     private func applyPendingExternalStateIfNeeded() {
@@ -1035,6 +1052,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         guard !isReordering else { return }
+        guard !isTapToOpenSuppressed else { return }
         guard citiesLocal.indices.contains(indexPath.item) else { return }
 
         let city = citiesLocal[indexPath.item]
