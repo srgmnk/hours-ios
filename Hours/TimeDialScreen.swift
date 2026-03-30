@@ -3,6 +3,13 @@ import UIKit
 import Combine
 
 struct TimeDialScreen: View {
+    private struct CityDetailsPresentation: Identifiable {
+        let id = UUID()
+        let city: City
+        let primaryCity: City
+        let date: Date
+    }
+
     @StateObject private var viewModel = TimeDialViewModel()
     @StateObject private var currentLocationProvider = CurrentLocationCityProvider()
     @EnvironmentObject private var cityStore: CityStore
@@ -15,6 +22,7 @@ struct TimeDialScreen: View {
     @State private var isAddCitySheetPresented = false
     @State private var isSettingsSheetPresented = false
     @State private var cityBeingRenamed: City?
+    @State private var cityDetailsPresentation: CityDetailsPresentation?
     @State private var pendingAddedCityItem: CitySearchItem?
     @AppStorage(CityViewPreference.storageKey) private var cityViewPreferenceRawValue = CityViewPreference.basic.rawValue
     @StateObject private var emptyStateQuoteProvider = EmptyStateQuoteProvider()
@@ -92,7 +100,8 @@ struct TimeDialScreen: View {
                             // Desired visual stop gap from physical screen bottom.
                             bottomContentInset: cityListDesiredBottomGap,
                             cardBackgroundColor: SheetStyle.appCardBackground(for: theme),
-                            onRenameRequested: presentRenameSheet(for:)
+                            onRenameRequested: presentRenameSheet(for:),
+                            onCitySelected: presentCityDetails(for:)
                         )
                         .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                     }
@@ -171,6 +180,16 @@ struct TimeDialScreen: View {
             ChangeCityNameSheetView(city: city) { customName in
                 applyCustomDisplayName(customName, toCityID: city.id)
             }
+        }
+        .sheet(item: $cityDetailsPresentation) { presentation in
+            CityDetailsView(
+                city: presentation.city,
+                primaryCity: presentation.primaryCity,
+                date: presentation.date
+            )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(38)
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -347,6 +366,14 @@ struct TimeDialScreen: View {
         cityStore.cities[index].customDisplayName = customName
     }
 
+    private func presentCityDetails(for city: City) {
+        cityDetailsPresentation = CityDetailsPresentation(
+            city: city,
+            primaryCity: cityStore.cities.first ?? city,
+            date: viewModel.selectedInstant
+        )
+    }
+
     private func changeQuote() {
         let generator = UIImpactFeedbackGenerator(style: .medium)
         generator.impactOccurred()
@@ -404,6 +431,7 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
     let bottomContentInset: CGFloat
     let cardBackgroundColor: Color
     let onRenameRequested: (City) -> Void
+    let onCitySelected: (City) -> Void
 
     final class Coordinator {
         var parent: CityListReorderUIKitView
@@ -431,6 +459,9 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
         controller.onRenameRequested = { [weak coordinator = context.coordinator] city in
             coordinator?.parent.onRenameRequested(city)
         }
+        controller.onCitySelected = { [weak coordinator = context.coordinator] city in
+            coordinator?.parent.onCitySelected(city)
+        }
         controller.apply(
             cities: cities,
             selectedInstant: selectedInstant,
@@ -450,6 +481,9 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
         }
         uiViewController.onRenameRequested = { [weak coordinator = context.coordinator] city in
             coordinator?.parent.onRenameRequested(city)
+        }
+        uiViewController.onCitySelected = { [weak coordinator = context.coordinator] city in
+            coordinator?.parent.onCitySelected(city)
         }
         uiViewController.apply(
             cities: cities,
@@ -482,6 +516,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
 
     var onCitiesChanged: (([City]) -> Void)?
     var onRenameRequested: ((City) -> Void)?
+    var onCitySelected: ((City) -> Void)?
 
     private lazy var collectionViewLayout: UICollectionViewCompositionalLayout = {
         var listConfiguration = UICollectionLayoutListConfiguration(appearance: .plain)
@@ -996,6 +1031,20 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             cardBackgroundColor: cardBackgroundColor
         )
         return cell
+    }
+
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        guard !isReordering else { return }
+        guard citiesLocal.indices.contains(indexPath.item) else { return }
+
+        let city = citiesLocal[indexPath.item]
+        let haptics = UIImpactFeedbackGenerator(style: .light)
+        haptics.impactOccurred()
+        collectionView.deselectItem(at: indexPath, animated: true)
+
+        DispatchQueue.main.async { [weak self] in
+            self?.onCitySelected?(city)
+        }
     }
 
     func collectionView(
