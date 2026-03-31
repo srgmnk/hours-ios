@@ -7,6 +7,14 @@ private enum RowTrailing {
     case symbol(String)
 }
 
+private enum SettingsLinkAction {
+    case appStoreReview
+    case contactMe
+    case shareApp
+    case privacyPolicy
+    case termsOfUse
+}
+
 struct SettingsSheetView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
@@ -15,6 +23,7 @@ struct SettingsSheetView: View {
     @AppStorage(AppTimeFormatPreference.storageKey) private var timeFormatPreferenceRawValue = AppTimeFormatPreference.system.rawValue
     @AppStorage(AppAppearancePreference.storageKey) private var appearancePreferenceRawValue = AppAppearancePreference.system.rawValue
     @State private var isMailComposerPresented = false
+    @State private var isSharePresented = false
     @State private var presentedLegalDocument: LegalDocument?
 
     private var selectedCityViewPreference: CityViewPreference {
@@ -45,8 +54,12 @@ struct SettingsSheetView: View {
 
     private var mailRecipient: String { "hi@sergy.xyz" }
     private var mailSubject: String { "Hours — Contact" }
+    private let appStoreID = "6760683802"
+    private var appStoreURL: URL {
+        URL(string: "https://apps.apple.com/app/id\(appStoreID)")!
+    }
     private var appStoreReviewURL: URL {
-        URL(string: "https://apps.apple.com/app/id6760683802?action=write-review")!
+        URL(string: "https://apps.apple.com/app/id\(appStoreID)?action=write-review")!
     }
     private var appVersion: String {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "Unknown"
@@ -55,12 +68,33 @@ struct SettingsSheetView: View {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "Unknown"
     }
     private var appearanceSettingDescription: String { selectedAppearancePreference.displayTitle }
-    private var linkRows: [(title: String, trailing: RowTrailing)] {
+    private var linkRows: [(title: String, trailing: RowTrailing, action: SettingsLinkAction)] {
         [
-            (title: "Rate on the App Store", trailing: RowTrailing.text("ver \(appVersion).\(appBuild)")),
-            (title: "Contact Me", trailing: RowTrailing.text("Any suggestions?")),
-            (title: "Privacy Policy", trailing: RowTrailing.symbol("arrow.up.forward")),
-            (title: "Terms of Use", trailing: RowTrailing.symbol("arrow.up.forward"))
+            (
+                title: "Rate on the App Store",
+                trailing: RowTrailing.text("ver \(appVersion).\(appBuild)"),
+                action: .appStoreReview
+            ),
+            (
+                title: "Contact me",
+                trailing: RowTrailing.text("Any ides?"),
+                action: .contactMe
+            ),
+            (
+                title: "Share with friends",
+                trailing: RowTrailing.text("Spread the word"),
+                action: .shareApp
+            ),
+            (
+                title: "Privacy policy",
+                trailing: RowTrailing.symbol("arrow.up.forward"),
+                action: .privacyPolicy
+            ),
+            (
+                title: "Terms of use",
+                trailing: RowTrailing.symbol("arrow.up.forward"),
+                action: .termsOfUse
+            )
         ]
     }
     private var mailBody: String {
@@ -146,6 +180,9 @@ struct SettingsSheetView: View {
                 messageBody: mailBody
             )
         }
+        .sheet(isPresented: $isSharePresented) {
+            ShareSheet(items: [appStoreURL])
+        }
         .sheet(item: $presentedLegalDocument) { document in
             LegalDocumentSheet(document: document)
         }
@@ -185,7 +222,7 @@ struct SettingsSheetView: View {
 
     private var cityViewRow: some View {
         HStack(spacing: 16) {
-            Text("City View")
+            Text("City view")
                 .font(.system(size: 16, weight: .regular))
                 .tracking(-0.48)
                 .foregroundStyle(theme.textPrimary)
@@ -239,7 +276,7 @@ struct SettingsSheetView: View {
 
     private var timeFormatRow: some View {
         HStack(spacing: 16) {
-            Text("Time Format")
+            Text("Time format")
                 .font(.system(size: 16, weight: .regular))
                 .tracking(-0.48)
                 .foregroundStyle(theme.textPrimary)
@@ -349,17 +386,17 @@ struct SettingsSheetView: View {
         VStack(spacing: 1) {
             ForEach(Array(linkRows.enumerated()), id: \.offset) { index, row in
                 let onTapHandler: (() -> Void)? = {
-                    switch row.title {
-                    case "Rate on the App Store":
+                    switch row.action {
+                    case .appStoreReview:
                         openURL(appStoreReviewURL)
-                    case "Contact Me":
+                    case .contactMe:
                         presentContactMe()
-                    case "Privacy Policy":
+                    case .shareApp:
+                        isSharePresented = true
+                    case .privacyPolicy:
                         presentedLegalDocument = .privacy
-                    case "Terms of Use":
+                    case .termsOfUse:
                         presentedLegalDocument = .terms
-                    default:
-                        return
                     }
                 }
 
@@ -456,6 +493,18 @@ struct SettingsSheetView: View {
             Rectangle()
                 .fill(SheetStyle.groupedRowBackground(for: theme))
         }
+    }
+}
+
+private struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {
+        // No-op
     }
 }
 
