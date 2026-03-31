@@ -282,17 +282,8 @@ struct CityCardView: View {
             }
 
             if shouldShowDSTTag {
-                Text("DST")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .tracking(cityViewPreference == .compact ? -0.2 : -0.9)
-                    .foregroundStyle(theme.textSecondary)
-                    .padding(.horizontal, 5)
-                    .padding(.bottom, 0.5)
-                    .frame(height: 17)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(theme.borderSubtle, lineWidth: 1)
-                    )
+                DSTBadgeView(cityViewPreference: cityViewPreference)
+                    .environment(\.appTheme, theme)
             }
         }
     }
@@ -327,5 +318,25 @@ struct CityCardView: View {
         Image(systemName: dayNightSymbol)
             .font(.system(size: size, weight: weight))
             .foregroundStyle(secondaryTextColor)
+    }
+}
+
+struct DSTBadgeView: View {
+    @Environment(\.appTheme) private var theme
+
+    let cityViewPreference: CityViewPreference
+
+    var body: some View {
+        Text("DST")
+            .font(.system(size: 10, weight: .bold, design: .rounded))
+            .tracking(cityViewPreference == .compact ? -0.2 : -0.9)
+            .foregroundStyle(theme.textSecondary)
+            .padding(.horizontal, 5)
+            .padding(.bottom, 0.5)
+            .frame(height: 17)
+            .background(
+                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                    .stroke(theme.borderSubtle, lineWidth: 1)
+            )
     }
 }

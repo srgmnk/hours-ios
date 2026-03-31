@@ -8,6 +8,8 @@ struct TimeDialScreen: View {
         let city: City
         let primaryCity: City
         let date: Date
+        let relativeOffsetMinutes: Int
+        let cityViewPreference: CityViewPreference
     }
 
     @StateObject private var viewModel = TimeDialViewModel()
@@ -185,7 +187,9 @@ struct TimeDialScreen: View {
             CityDetailsView(
                 city: presentation.city,
                 primaryCity: presentation.primaryCity,
-                date: presentation.date
+                date: presentation.date,
+                relativeOffsetMinutes: presentation.relativeOffsetMinutes,
+                cityViewPreference: presentation.cityViewPreference
             )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
@@ -370,7 +374,9 @@ struct TimeDialScreen: View {
         cityDetailsPresentation = CityDetailsPresentation(
             city: city,
             primaryCity: cityStore.cities.first ?? city,
-            date: viewModel.selectedInstant
+            date: viewModel.selectedInstant,
+            relativeOffsetMinutes: viewModel.deltaMinutes,
+            cityViewPreference: selectedCityViewPreference
         )
     }
 

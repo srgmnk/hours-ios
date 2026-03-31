@@ -7,22 +7,21 @@ struct ChangeCityNameSheetView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.appTheme) private var theme
-    @State private var customName: String = ""
-    @State private var baselineDisplayName: String
+    @State private var editableName: String
     @State private var isNameFieldFocused = false
 
     init(city: City, onSave: @escaping (String?) -> Void) {
         self.city = city
         self.onSave = onSave
-        _baselineDisplayName = State(initialValue: city.displayName)
+        _editableName = State(initialValue: city.displayName)
     }
 
     private var originalName: String {
         city.canonicalCity.name
     }
 
-    private var trimmedCustomName: String {
-        customName.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var trimmedEditableName: String {
+        editableName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var trimmedOriginalName: String {
@@ -33,29 +32,24 @@ struct ChangeCityNameSheetView: View {
         city.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var trimmedBaselineDisplayName: String {
-        let trimmed = baselineDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? trimmedOriginalName : trimmed
-    }
-
-    private var pendingDisplayName: String {
-        trimmedCustomName.isEmpty ? trimmedBaselineDisplayName : trimmedCustomName
-    }
-
     private var hasSavedCustomDisplayName: Bool {
         !(city.customDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
     private var shouldShowSaveButton: Bool {
-        pendingDisplayName != trimmedSavedDisplayName
+        trimmedEditableName != trimmedSavedDisplayName
+    }
+
+    private var isSaveEnabled: Bool {
+        !trimmedEditableName.isEmpty && shouldShowSaveButton
     }
 
     private var shouldShowRestoreOriginalButton: Bool {
-        hasSavedCustomDisplayName || pendingDisplayName != trimmedOriginalName
+        hasSavedCustomDisplayName || trimmedEditableName != trimmedOriginalName
     }
 
     private var isUsingOriginalNameValue: Bool {
-        !shouldShowRestoreOriginalButton && trimmedCustomName.isEmpty
+        !shouldShowRestoreOriginalButton && trimmedEditableName == trimmedOriginalName
     }
 
     private var bottomAccessoryHeight: CGFloat {
@@ -70,11 +64,11 @@ struct ChangeCityNameSheetView: View {
                         Spacer(minLength: 0)
 
                         NativeCenteredNameTextField(
-                            text: $customName,
-                            placeholder: trimmedBaselineDisplayName,
+                            text: $editableName,
+                            placeholder: "",
                             isFocused: $isNameFieldFocused,
                             onSubmit: {
-                                guard shouldShowSaveButton else { return }
+                                guard isSaveEnabled else { return }
                                 saveAndDismiss()
                             }
                         )
@@ -97,8 +91,7 @@ struct ChangeCityNameSheetView: View {
                     if shouldShowRestoreOriginalButton {
                         Button {
                             triggerNotificationHaptic(.warning)
-                            customName = ""
-                            baselineDisplayName = originalName
+                            editableName = originalName
                             DispatchQueue.main.async {
                                 isNameFieldFocused = true
                             }
@@ -157,6 +150,8 @@ struct ChangeCityNameSheetView: View {
                         .font(.system(size: 17, weight: .medium))
                         .tracking(-0.41)
                         .foregroundStyle(theme.textPrimary)
+                        .opacity(isSaveEnabled ? 1 : 0.4)
+                        .disabled(!isSaveEnabled)
                     }
                 }
             }
@@ -169,7 +164,8 @@ struct ChangeCityNameSheetView: View {
     }
 
     private func saveAndDismiss() {
-        onSave(normalizedCustomName(from: pendingDisplayName))
+        guard isSaveEnabled else { return }
+        onSave(normalizedCustomName(from: trimmedEditableName))
         triggerNotificationHaptic(.success)
         dismiss()
     }
@@ -246,7 +242,8 @@ private struct NativeCenteredNameTextField: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: UITextField, context: Context) {
-        if uiView.text != text {
+        let didProgrammaticallyChangeText = uiView.text != text
+        if didProgrammaticallyChangeText {
             uiView.text = text
         }
 
@@ -267,9 +264,16 @@ private struct NativeCenteredNameTextField: UIViewRepresentable {
         }
 
         if isFocused {
-            guard !uiView.isFirstResponder else { return }
+            if uiView.isFirstResponder {
+                if didProgrammaticallyChangeText {
+                    context.coordinator.moveCaretToEnd(in: uiView)
+                }
+                return
+            }
+
             DispatchQueue.main.async {
                 uiView.becomeFirstResponder()
+                context.coordinator.moveCaretToEnd(in: uiView)
             }
         } else if uiView.isFirstResponder {
             uiView.resignFirstResponder()
@@ -297,6 +301,7 @@ private struct NativeCenteredNameTextField: UIViewRepresentable {
 
         func textFieldDidBeginEditing(_ textField: UITextField) {
             isFocused = true
+            moveCaretToEnd(in: textField)
         }
 
         func textFieldDidEndEditing(_ textField: UITextField) {
@@ -306,6 +311,13 @@ private struct NativeCenteredNameTextField: UIViewRepresentable {
         func textFieldShouldReturn(_ textField: UITextField) -> Bool {
             onSubmit()
             return false
+        }
+
+        func moveCaretToEnd(in textField: UITextField) {
+            DispatchQueue.main.async {
+                let end = textField.endOfDocument
+                textField.selectedTextRange = textField.textRange(from: end, to: end)
+            }
         }
     }
 }
