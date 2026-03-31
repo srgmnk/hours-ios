@@ -137,6 +137,45 @@ struct CityDetailsView: View {
         case lateHours
     }
 
+    private struct CityDetailsParallaxIllustrationView: View {
+        let period: TimePeriod
+
+        private let illustrationWidth: CGFloat = 353
+        private let backStrength: CGFloat = 2
+        private let middleStrength: CGFloat = 5
+        private let frontStrength: CGFloat = 10
+
+        var body: some View {
+            LayeredParallaxIllustrationView(
+                backImageName: "city-back",
+                middleImageName: middleAssetName(for: period),
+                frontImageName: "city-front",
+                backStrength: backStrength,
+                middleStrength: middleStrength,
+                frontStrength: frontStrength
+            )
+            .frame(width: illustrationWidth)
+            .accessibilityHidden(true)
+        }
+
+        private func middleAssetName(for period: TimePeriod) -> String {
+            switch period {
+            case .deepNight:
+                return "city-mid-deepnight"
+            case .earlyHours:
+                return "city-mid-earlyhours"
+            case .freshMorning:
+                return "city-mid-freshmorning"
+            case .daytime:
+                return "city-mid-daytime"
+            case .evening:
+                return "city-mid-evening"
+            case .lateHours:
+                return "city-mid-latehours"
+            }
+        }
+    }
+
     private struct VibeSummary {
         let lines: [String]
     }
@@ -357,6 +396,7 @@ struct CityDetailsView: View {
             Spacer(minLength: 0)
 
             vibeIllustration
+                .padding(.top, -80)
 
             VStack(spacing: 0) {
                 ForEach(Array(vibeSummary.lines.enumerated()), id: \.offset) { _, line in
@@ -368,7 +408,7 @@ struct CityDetailsView: View {
                 }
             }
             .multilineTextAlignment(.center)
-            .padding(.top, 34)
+            .padding(.top, -24)
             .padding(.horizontal, 28)
 
             overlapText
@@ -498,28 +538,7 @@ struct CityDetailsView: View {
     }
 
     private var vibeIllustration: some View {
-        Image(illustrationName(for: currentTimePeriod))
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: 80, height: 100)
-            .accessibilityHidden(true)
-    }
-
-    private func illustrationName(for period: TimePeriod) -> String {
-        switch period {
-        case .deepNight:
-            return "city-deepnight"
-        case .earlyHours:
-            return "city-earlyhours"
-        case .freshMorning:
-            return "city-freshmorning"
-        case .daytime:
-            return "city-daytime"
-        case .evening:
-            return "city-evening"
-        case .lateHours:
-            return "city-latehours"
-        }
+        CityDetailsParallaxIllustrationView(period: currentTimePeriod)
     }
 
     private var overlapText: some View {
