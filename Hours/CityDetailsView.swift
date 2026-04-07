@@ -1,5 +1,9 @@
+import EventKit
+import EventKitUI
 import MapKit
 import SwiftUI
+import UIKit
+import UserNotifications
 
 private enum SunEventKind {
     case sunrise
@@ -189,6 +193,10 @@ struct CityDetailsView: View {
     @Environment(\.appTheme) private var theme
     @State private var weatherCardState: WeatherCardState = .loading
     @State private var sunCardState: SunCardState = .loading
+    @State private var showEventSheet = false
+    @State private var showReminderTitleSheet = false
+    @State private var eventStore = EKEventStore()
+    @State private var reminderStore = EKEventStore()
 
     let city: City
     let primaryCity: City
@@ -210,9 +218,47 @@ struct CityDetailsView: View {
     }
 
     private var headerDateTitle: String {
+        formattedHeaderDate(includingWeekday: true)
+    }
+
+    private var eventDateTitle: String {
+        formattedHeaderDate(includingWeekday: false)
+    }
+
+    private var selectedCityOriginalName: String {
+        city.name
+    }
+
+    private var referenceCityOriginalName: String {
+        primaryCity.name
+    }
+
+    private var eventOffsetSeconds: Int {
+        city.timeZone.secondsFromGMT(for: date) - primaryCity.timeZone.secondsFromGMT(for: date)
+    }
+
+    private var eventOffsetText: String {
+        offsetValueText(offsetSeconds: eventOffsetSeconds)
+    }
+
+    private var creationNotesText: String {
+        """
+        Selected city: \(selectedCityOriginalName)
+        Local time in \(selectedCityOriginalName): \(headerTimeTitle), \(eventDateTitle)
+        Reference city: \(referenceCityOriginalName)
+        Time difference: \(eventOffsetText)
+        Created from Hours
+        """
+    }
+
+    private var notificationBodyText: String {
+        "\(headerTimeTitle) in \(selectedCityOriginalName) (\(referenceCityOriginalName) \(eventOffsetText))"
+    }
+
+    private func formattedHeaderDate(includingWeekday: Bool) -> String {
         let formatter = DateFormatter()
         formatter.timeZone = city.timeZone
-        formatter.dateFormat = "d MMMM, EEEE"
+        formatter.dateFormat = includingWeekday ? "d MMMM, EEEE" : "d MMMM"
         return formatter.string(from: date)
     }
 
@@ -323,6 +369,10 @@ struct CityDetailsView: View {
                     closeButton
                 }
 
+                ToolbarItem(placement: .topBarTrailing) {
+                    createActionMenu
+                }
+
                 ToolbarItem(placement: .principal) {
                     VStack(spacing: 0) {
                         Text(headerTimeTitle)
@@ -336,6 +386,30 @@ struct CityDetailsView: View {
                     }
                 }
             }
+        }
+        .sheet(isPresented: $showEventSheet) {
+            EventEditView(
+                eventStore: eventStore,
+                date: date,
+                timeZone: city.timeZone,
+                notes: creationNotesText
+            )
+        }
+        .sheet(isPresented: $showReminderTitleSheet) {
+            SingleTextEntrySheetView(
+                title: "New reminder",
+                initialText: "",
+                placeholder: "Title",
+                confirmButtonTitle: "Create",
+                helperText: "We’ll create a new reminder in the Reminders app at your selected date and time",
+                showsOriginalButton: false,
+                onConfirm: { title in
+                    DispatchQueue.main.async {
+                        requestReminderAccessAndCreate(title: title)
+                    }
+                },
+                onDismiss: {}
+            )
         }
         .task(id: cardResolutionTaskID) {
             weatherCardState = .loading
@@ -463,9 +537,171 @@ struct CityDetailsView: View {
             dismiss()
         } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
         }
         .buttonStyle(.plain)
+    }
+
+    private var createActionMenu: some View {
+        Menu {
+            Button {
+                createCalendarEvent()
+            } label: {
+                Label("Add to calendar", systemImage: "calendar")
+            }
+
+            Button {
+                createReminder()
+            } label: {
+                Label("Add a reminder", systemImage: "checklist")
+            }
+
+            Button {
+                createPushNotification()
+            } label: {
+                Label("Push notification", systemImage: "app.badge")
+            }
+        } label: {
+            Image(systemName: "calendar.badge.plus")
+                .font(.system(size: 14, weight: .medium))
+                .padding(.top, 2)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func createCalendarEvent() {
+        requestCalendarAccessAndPresent()
+    }
+
+    private func requestCalendarAccessAndPresent() {
+        switch EKEventStore.authorizationStatus(for: .event) {
+        case .fullAccess, .writeOnly, .authorized:
+            showEventSheet = true
+        case .notDetermined:
+            if #available(iOS 17.0, *) {
+                eventStore.requestWriteOnlyAccessToEvents { granted, _ in
+                    DispatchQueue.main.async {
+                        if granted {
+                            showEventSheet = true
+                        }
+                    }
+                }
+            } else {
+                eventStore.requestAccess(to: .event) { granted, _ in
+                    DispatchQueue.main.async {
+                        if granted {
+                            showEventSheet = true
+                        }
+                    }
+                }
+            }
+        case .restricted, .denied:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func createReminder() {
+        showReminderTitleSheet = true
+    }
+
+    private func createPushNotification() {
+        requestNotificationPermissionAndSchedule()
+    }
+
+    private func requestNotificationPermissionAndSchedule() {
+        guard date > Date() else {
+            return
+        }
+
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+            guard granted else {
+                return
+            }
+
+            schedulePushNotification(using: center)
+        }
+    }
+
+    private func schedulePushNotification(using center: UNUserNotificationCenter) {
+        var components = Calendar.current.dateComponents([.year, .month, .day, .hour, .minute, .second], from: date)
+        components.timeZone = .current
+
+        let content = UNMutableNotificationContent()
+        content.title = "Hours reminder"
+        content.body = notificationBodyText
+        content.sound = .default
+
+        let request = UNNotificationRequest(
+            identifier: UUID().uuidString,
+            content: content,
+            trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: false)
+        )
+
+        center.add(request) { error in
+            guard error == nil else {
+                return
+            }
+
+            DispatchQueue.main.async {
+                let generator = UINotificationFeedbackGenerator()
+                generator.notificationOccurred(.success)
+            }
+        }
+    }
+
+    private func requestReminderAccessAndCreate(title: String) {
+        switch EKEventStore.authorizationStatus(for: .reminder) {
+        case .fullAccess, .writeOnly, .authorized:
+            saveReminder(title: title)
+        case .notDetermined:
+            if #available(iOS 17.0, *) {
+                reminderStore.requestFullAccessToReminders { granted, _ in
+                    DispatchQueue.main.async {
+                        if granted {
+                            saveReminder(title: title)
+                        }
+                    }
+                }
+            } else {
+                reminderStore.requestAccess(to: .reminder) { granted, _ in
+                    DispatchQueue.main.async {
+                        if granted {
+                            saveReminder(title: title)
+                        }
+                    }
+                }
+            }
+        case .restricted, .denied:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    private func saveReminder(title: String) {
+        guard let calendar = reminderStore.defaultCalendarForNewReminders() else {
+            return
+        }
+
+        let reminder = EKReminder(eventStore: reminderStore)
+        reminder.title = title
+        reminder.calendar = calendar
+        reminder.notes = creationNotesText
+        reminder.addAlarm(EKAlarm(absoluteDate: date))
+
+        do {
+            try reminderStore.save(reminder, commit: true)
+
+            DispatchQueue.main.async {
+                let generator = UINotificationFeedbackGenerator()
+                generator.notificationOccurred(.success)
+            }
+        } catch {
+            // Intentionally ignore reminder save failures for now.
+        }
     }
 
     private func dayType(for weekday: Int) -> DayType {
@@ -1447,6 +1683,49 @@ private actor CitySunEventProvider {
 
     private func radiansToDegrees(_ radians: Double) -> Double {
         radians * 180.0 / .pi
+    }
+}
+
+private struct EventEditView: UIViewControllerRepresentable {
+    let eventStore: EKEventStore
+    let date: Date
+    let timeZone: TimeZone
+    let notes: String
+
+    func makeUIViewController(context: Context) -> EKEventEditViewController {
+        let controller = EKEventEditViewController()
+        controller.eventStore = eventStore
+
+        let event = EKEvent(eventStore: eventStore)
+        event.startDate = date
+        event.endDate = date.addingTimeInterval(60 * 60)
+        event.timeZone = timeZone
+        if let defaultCalendar = eventStore.defaultCalendarForNewEvents {
+            event.calendar = defaultCalendar
+        }
+        event.notes = notes
+
+        controller.event = event
+        controller.editViewDelegate = context.coordinator
+
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: EKEventEditViewController, context: Context) {
+        // No-op
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator: NSObject, EKEventEditViewDelegate {
+        func eventEditViewController(
+            _ controller: EKEventEditViewController,
+            didCompleteWith action: EKEventEditViewAction
+        ) {
+            controller.dismiss(animated: true)
+        }
     }
 }
 

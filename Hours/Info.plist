@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict/>
+<dict>
+	<key>NSCalendarsUsageDescription</key>
+	<string>Hours creates calendar events for the selected snapshot time.</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>Hours creates calendar events for the selected snapshot time.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Hours creates reminders for the selected snapshot time.</string>
+	<key>NSRemindersUsageDescription</key>
+	<string>Hours creates reminders for the selected snapshot time.</string>
+</dict>
 </plist>

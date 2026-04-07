@@ -77,7 +77,7 @@ struct SettingsSheetView: View {
             ),
             (
                 title: "Contact me",
-                trailing: RowTrailing.text("Any ides?"),
+                trailing: RowTrailing.text("Any ideas?"),
                 action: .contactMe
             ),
             (
@@ -137,7 +137,7 @@ struct SettingsSheetView: View {
                             Text("the moment")
                             Text("in hours")
                         }
-                        .font(.system(size: 32, weight: .semibold))
+                        .font(.system(size: 32, weight: .medium))
                         .foregroundStyle(Color(red: 78.0 / 255.0, green: 80.0 / 255.0, blue: 89.0 / 255.0))
                         .tracking(-0.96)
                         .multilineTextAlignment(.center)
@@ -202,7 +202,7 @@ struct SettingsSheetView: View {
             dismiss()
         } label: {
             Image(systemName: "xmark")
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
         }
         .buttonStyle(.plain)
     }

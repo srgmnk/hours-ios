@@ -5,23 +5,8 @@ struct ChangeCityNameSheetView: View {
     let city: City
     let onSave: (String?) -> Void
 
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.appTheme) private var theme
-    @State private var editableName: String
-    @State private var isNameFieldFocused = false
-
-    init(city: City, onSave: @escaping (String?) -> Void) {
-        self.city = city
-        self.onSave = onSave
-        _editableName = State(initialValue: city.displayName)
-    }
-
     private var originalName: String {
         city.canonicalCity.name
-    }
-
-    private var trimmedEditableName: String {
-        editableName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private var trimmedOriginalName: String {
@@ -36,20 +21,116 @@ struct ChangeCityNameSheetView: View {
         !(city.customDisplayName?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
     }
 
-    private var shouldShowSaveButton: Bool {
-        trimmedEditableName != trimmedSavedDisplayName
+    var body: some View {
+        SingleTextEntrySheetView(
+            title: "Change Name",
+            initialText: city.displayName,
+            placeholder: "",
+            confirmButtonTitle: "Save",
+            helperText: nil,
+            showsOriginalButton: false,
+            originalButtonTitle: "Original",
+            originalReplacementText: originalName,
+            showsConfirmButton: false,
+            dynamicHelperText: { trimmedText in
+                let shouldShowRestoreOriginalButton = hasSavedCustomDisplayName || trimmedText != trimmedOriginalName
+                let isUsingOriginalNameValue = !shouldShowRestoreOriginalButton && trimmedText == trimmedOriginalName
+                guard isUsingOriginalNameValue else { return nil }
+                return "For example, the name of the person\nwho lives there"
+            },
+            dynamicShowsOriginalButton: { trimmedText in
+                hasSavedCustomDisplayName || trimmedText != trimmedOriginalName
+            },
+            dynamicShowsConfirmButton: { trimmedText in
+                trimmedText != trimmedSavedDisplayName
+            },
+            onConfirm: { trimmedText in
+                onSave(normalizedCustomName(from: trimmedText))
+                triggerNotificationHaptic(.success)
+            },
+            onDismiss: {}
+        )
     }
 
-    private var isSaveEnabled: Bool {
-        !trimmedEditableName.isEmpty && shouldShowSaveButton
+    private func normalizedCustomName(from rawValue: String) -> String? {
+        guard !rawValue.isEmpty else { return nil }
+        guard rawValue != trimmedOriginalName else { return nil }
+        return rawValue
+    }
+}
+
+struct SingleTextEntrySheetView: View {
+    let title: String
+    let initialText: String
+    let placeholder: String
+    let confirmButtonTitle: String
+    let helperText: String?
+    let showsOriginalButton: Bool
+    let originalButtonTitle: String
+    let originalReplacementText: String
+    let showsConfirmButton: Bool
+    let dynamicHelperText: ((String) -> String?)?
+    let dynamicShowsOriginalButton: ((String) -> Bool)?
+    let dynamicShowsConfirmButton: ((String) -> Bool)?
+    let onConfirm: (String) -> Void
+    let onDismiss: () -> Void
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.appTheme) private var theme
+    @State private var editableText: String
+    @State private var isTextFieldFocused = false
+
+    init(
+        title: String,
+        initialText: String,
+        placeholder: String,
+        confirmButtonTitle: String,
+        helperText: String? = nil,
+        showsOriginalButton: Bool = false,
+        originalButtonTitle: String = "Original",
+        originalReplacementText: String = "",
+        showsConfirmButton: Bool = true,
+        dynamicHelperText: ((String) -> String?)? = nil,
+        dynamicShowsOriginalButton: ((String) -> Bool)? = nil,
+        dynamicShowsConfirmButton: ((String) -> Bool)? = nil,
+        onConfirm: @escaping (String) -> Void,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.title = title
+        self.initialText = initialText
+        self.placeholder = placeholder
+        self.confirmButtonTitle = confirmButtonTitle
+        self.helperText = helperText
+        self.showsOriginalButton = showsOriginalButton
+        self.originalButtonTitle = originalButtonTitle
+        self.originalReplacementText = originalReplacementText
+        self.showsConfirmButton = showsConfirmButton
+        self.dynamicHelperText = dynamicHelperText
+        self.dynamicShowsOriginalButton = dynamicShowsOriginalButton
+        self.dynamicShowsConfirmButton = dynamicShowsConfirmButton
+        self.onConfirm = onConfirm
+        self.onDismiss = onDismiss
+        _editableText = State(initialValue: initialText)
     }
 
-    private var shouldShowRestoreOriginalButton: Bool {
-        hasSavedCustomDisplayName || trimmedEditableName != trimmedOriginalName
+    private var trimmedEditableText: String {
+        editableText.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var isUsingOriginalNameValue: Bool {
-        !shouldShowRestoreOriginalButton && trimmedEditableName == trimmedOriginalName
+    private var resolvedHelperText: String? {
+        dynamicHelperText?(trimmedEditableText) ?? helperText
+    }
+
+    private var resolvedShowsOriginalButton: Bool {
+        dynamicShowsOriginalButton?(trimmedEditableText) ?? showsOriginalButton
+    }
+
+    private var resolvedShowsConfirmButton: Bool {
+        dynamicShowsConfirmButton?(trimmedEditableText) ?? showsConfirmButton
+    }
+
+    private var isConfirmEnabled: Bool {
+        !trimmedEditableText.isEmpty
     }
 
     private var bottomAccessoryHeight: CGFloat {
@@ -64,12 +145,12 @@ struct ChangeCityNameSheetView: View {
                         Spacer(minLength: 0)
 
                         NativeCenteredNameTextField(
-                            text: $editableName,
-                            placeholder: "",
-                            isFocused: $isNameFieldFocused,
+                            text: $editableText,
+                            placeholder: placeholder,
+                            isFocused: $isTextFieldFocused,
                             onSubmit: {
-                                guard isSaveEnabled else { return }
-                                saveAndDismiss()
+                                guard resolvedShowsConfirmButton, isConfirmEnabled else { return }
+                                confirmAndDismiss()
                             }
                         )
                         .frame(maxWidth: 420)
@@ -88,19 +169,19 @@ struct ChangeCityNameSheetView: View {
             )
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
-                    if shouldShowRestoreOriginalButton {
+                    if resolvedShowsOriginalButton {
                         Button {
                             triggerNotificationHaptic(.warning)
-                            editableName = originalName
+                            editableText = originalReplacementText
                             DispatchQueue.main.async {
-                                isNameFieldFocused = true
+                                isTextFieldFocused = true
                             }
                         } label: {
                             HStack(spacing: 4) {
                                 Image(systemName: "arrow.counterclockwise")
                                     .font(.system(size: 13, weight: .medium))
 
-                                Text("Original")
+                                Text(originalButtonTitle)
                                     .font(.system(size: 16, weight: .regular))
                                     .tracking(-0.48)
                             }
@@ -114,8 +195,8 @@ struct ChangeCityNameSheetView: View {
                         }
                         .buttonStyle(.plain)
                         .transition(.opacity.combined(with: .scale(scale: 0.97)))
-                    } else if isUsingOriginalNameValue {
-                        Text("For example, the name of the person\nwho lives there")
+                    } else if let resolvedHelperText {
+                        Text(resolvedHelperText)
                             .font(.system(size: 14, weight: .regular))
                             .tracking(-0.42)
                             .multilineTextAlignment(.center)
@@ -125,68 +206,62 @@ struct ChangeCityNameSheetView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .frame(height: bottomAccessoryHeight, alignment: .center)
-//                .padding(.bottom, 8)
-                .animation(.easeInOut(duration: 0.16), value: shouldShowRestoreOriginalButton)
+                .animation(.easeInOut(duration: 0.16), value: resolvedShowsOriginalButton)
             }
-            .navigationTitle("Change Name")
+            .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
+                        onDismiss()
                         dismiss()
-                        } label: {
-                            Image(systemName: "xmark")
+                    } label: {
+                        Image(systemName: "xmark")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(theme.textPrimary)
-                        }
+                    }
                     .buttonStyle(.plain)
                 }
 
                 ToolbarItem(placement: .topBarTrailing) {
-                    if shouldShowSaveButton {
-                        Button("Save") {
-                            saveAndDismiss()
+                    if resolvedShowsConfirmButton {
+                        Button(confirmButtonTitle) {
+                            confirmAndDismiss()
                         }
                         .font(.system(size: 17, weight: .medium))
                         .tracking(-0.41)
                         .foregroundStyle(theme.textPrimary)
-                        .opacity(isSaveEnabled ? 1 : 0.4)
-                        .disabled(!isSaveEnabled)
+                        .opacity(isConfirmEnabled ? 1 : 0.4)
+                        .disabled(!isConfirmEnabled)
+                        .padding(.top, -2)
                     }
                 }
             }
             .onAppear {
                 DispatchQueue.main.async {
-                    isNameFieldFocused = true
+                    isTextFieldFocused = true
                 }
             }
         }
     }
 
-    private func saveAndDismiss() {
-        guard isSaveEnabled else { return }
-        onSave(normalizedCustomName(from: trimmedEditableName))
-        triggerNotificationHaptic(.success)
+    private func confirmAndDismiss() {
+        guard resolvedShowsConfirmButton, isConfirmEnabled else { return }
+        onConfirm(trimmedEditableText)
         dismiss()
     }
+}
 
-    private func normalizedCustomName(from rawValue: String) -> String? {
-        guard !rawValue.isEmpty else { return nil }
-        guard rawValue != trimmedOriginalName else { return nil }
-        return rawValue
+private func triggerNotificationHaptic(_ type: UINotificationFeedbackGenerator.FeedbackType) {
+    let fire = {
+        let generator = UINotificationFeedbackGenerator()
+        generator.notificationOccurred(type)
     }
 
-    private func triggerNotificationHaptic(_ type: UINotificationFeedbackGenerator.FeedbackType) {
-        let fire = {
-            let generator = UINotificationFeedbackGenerator()
-            generator.notificationOccurred(type)
-        }
-
-        if Thread.isMainThread {
-            fire()
-        } else {
-            DispatchQueue.main.async(execute: fire)
-        }
+    if Thread.isMainThread {
+        fire()
+    } else {
+        DispatchQueue.main.async(execute: fire)
     }
 }
 
@@ -207,7 +282,7 @@ private struct NativeCenteredNameTextField: UIViewRepresentable {
 
     private var placeholderAttributes: [NSAttributedString.Key: Any] {
         [
-            .font: UIFont.systemFont(ofSize: 46, weight: .semibold),
+            .font: UIFont.systemFont(ofSize: 40, weight: .semibold),
             .foregroundColor: placeholderColor,
             .kern: -0.96
         ]
@@ -216,7 +291,7 @@ private struct NativeCenteredNameTextField: UIViewRepresentable {
     func makeUIView(context: Context) -> UITextField {
         let textField = UITextField(frame: .zero)
         textField.delegate = context.coordinator
-        textField.font = .systemFont(ofSize: 46, weight: .semibold)
+        textField.font = .systemFont(ofSize: 40, weight: .medium)
         textField.adjustsFontForContentSizeCategory = true
         textField.returnKeyType = .done
         textField.autocorrectionType = .no
