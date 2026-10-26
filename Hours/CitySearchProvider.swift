@@ -6,47 +6,60 @@ final class CitySearchProvider {
     static let shared = CitySearchProvider()
 
     private final class SearchCompleterBridge: NSObject, MKLocalSearchCompleterDelegate {
-        private let completer = MKLocalSearchCompleter()
-        private var continuation: CheckedContinuation<[MKLocalSearchCompletion], Never>?
-
-        override init() {
-            super.init()
-            completer.delegate = self
-            completer.resultTypes = [.address]
+        private struct Request {
+            let id: UUID
+            let completer: MKLocalSearchCompleter
+            let continuation: CheckedContinuation<[MKLocalSearchCompletion], Never>
         }
+
+        private var activeRequest: Request?
 
         func completions(for query: String) async -> [MKLocalSearchCompletion] {
             let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !trimmed.isEmpty else { return [] }
+            guard !trimmed.isEmpty, !Task.isCancelled else { return [] }
 
-            completer.cancel()
-            finish(with: [])
+            if let activeRequest {
+                finish(requestID: activeRequest.id, with: [])
+            }
+            let requestID = UUID()
 
             return await withTaskCancellationHandler {
                 await withCheckedContinuation { continuation in
-                    self.continuation = continuation
+                    guard !Task.isCancelled else {
+                        continuation.resume(returning: [])
+                        return
+                    }
+                    // Delegate callbacks identify the completer, not its query.
+                    // A separate sender prevents late callbacks from matching a newer request.
+                    let completer = MKLocalSearchCompleter()
+                    completer.delegate = self
+                    completer.resultTypes = [.address]
+                    activeRequest = Request(id: requestID, completer: completer, continuation: continuation)
                     completer.queryFragment = trimmed
                 }
             } onCancel: {
                 Task { @MainActor [weak self] in
-                    self?.completer.cancel()
-                    self?.finish(with: [])
+                    self?.finish(requestID: requestID, with: [])
                 }
             }
         }
 
         func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
-            finish(with: completer.results)
+            guard let activeRequest, activeRequest.completer === completer else { return }
+            finish(requestID: activeRequest.id, with: completer.results)
         }
 
         func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: any Error) {
-            finish(with: [])
+            guard let activeRequest, activeRequest.completer === completer else { return }
+            finish(requestID: activeRequest.id, with: [])
         }
 
-        private func finish(with results: [MKLocalSearchCompletion]) {
-            guard let continuation else { return }
-            self.continuation = nil
-            continuation.resume(returning: results)
+        private func finish(requestID: UUID, with results: [MKLocalSearchCompletion]) {
+            guard let activeRequest, activeRequest.id == requestID else { return }
+            self.activeRequest = nil
+            activeRequest.completer.delegate = nil
+            activeRequest.completer.cancel()
+            activeRequest.continuation.resume(returning: results)
         }
     }
 
@@ -182,8 +195,10 @@ final class CitySearchProvider {
     func fallbackMergedResults(
         matching query: String,
         localResults: [CitySearchItem],
-        excluding existingTimeZoneIDs: Set<String>
+        excluding existingTimeZoneIDs: Set<String>,
+        existingCanonicalIDs: Set<String> = []
     ) async -> [CitySearchItem] {
+        guard !Task.isCancelled else { return localResults }
         guard shouldFetchFallback(for: query, localResultCount: localResults.count) else {
             return localResults
         }
@@ -191,29 +206,35 @@ final class CitySearchProvider {
         let normalizedQuery = Self.normalize(query)
         if completerQueryLengthRange.contains(normalizedQuery.count) {
             let completerResults = await completerFallbackResults(matching: query)
+            guard !Task.isCancelled else { return localResults }
             if !completerResults.isEmpty {
                 return mergeResults(
                     localResults: localResults,
                     fallbackResults: completerResults,
-                    excluding: existingTimeZoneIDs
+                    excluding: existingTimeZoneIDs,
+                    existingCanonicalIDs: existingCanonicalIDs
                 )
             }
         }
 
+        guard !Task.isCancelled else { return localResults }
         let fallback = await mapKitFallbackResults(
             matching: query,
             excluding: existingTimeZoneIDs,
             localResults: localResults
         )
+        guard !Task.isCancelled else { return localResults }
 
         return mergeResults(
             localResults: localResults,
             fallbackResults: fallback,
-            excluding: existingTimeZoneIDs
+            excluding: existingTimeZoneIDs,
+            existingCanonicalIDs: existingCanonicalIDs
         )
     }
 
     func completerFallbackResults(matching query: String) async -> [CitySearchItem] {
+        guard !Task.isCancelled else { return [] }
         let completions = await completerBridge.completions(for: query)
         guard !Task.isCancelled else { return [] }
 
@@ -227,7 +248,7 @@ final class CitySearchProvider {
 
             let response: MKLocalSearch.Response
             do {
-                response = try await MKLocalSearch(request: request).start()
+                response = try await searchResponse(for: request)
             } catch {
                 continue
             }
@@ -268,17 +289,12 @@ final class CitySearchProvider {
             return cityAndCountry.item
         }
 
-        if let timeZoneAndCountry = indexedLocalItems.first(where: {
+        if let alias = indexedLocalItems.first(where: {
+            $0.normalizedAliases.contains(normalizedCity) &&
             $0.normalizedTimeZone == normalizedTimeZone &&
             $0.normalizedCountry == normalizedCountry
         }) {
-            return timeZoneAndCountry.item
-        }
-
-        if let timeZoneOnly = indexedLocalItems.first(where: {
-            $0.normalizedTimeZone == normalizedTimeZone
-        }) {
-            return timeZoneOnly.item
+            return alias.item
         }
 
         return nil
@@ -317,7 +333,7 @@ final class CitySearchProvider {
         localResults: [CitySearchItem]
     ) async -> [CitySearchItem] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return [] }
+        guard !trimmed.isEmpty, !Task.isCancelled else { return [] }
 
         let request = MKLocalSearch.Request()
         request.naturalLanguageQuery = trimmed
@@ -325,10 +341,11 @@ final class CitySearchProvider {
 
         let response: MKLocalSearch.Response
         do {
-            response = try await MKLocalSearch(request: request).start()
+            response = try await searchResponse(for: request)
         } catch {
             return []
         }
+        guard !Task.isCancelled else { return [] }
 
         let normalizedQuery = Self.normalize(trimmed)
         var candidates: [(rank: Int, item: CitySearchItem)] = []
@@ -354,7 +371,8 @@ final class CitySearchProvider {
                 city: city,
                 country: country,
                 timeZoneIdentifier: timeZoneIdentifier,
-                aliases: []
+                aliases: [],
+                geographicalEvidence: Self.geographicalEvidence(from: mapItem)
             )
 
             let rank = Self.fallbackRank(city: Self.normalize(city), country: Self.normalize(country), query: normalizedQuery)
@@ -369,6 +387,21 @@ final class CitySearchProvider {
                 return lhs.item.country.localizedCaseInsensitiveCompare(rhs.item.country) == .orderedAscending
             }
             .map(\.item)
+    }
+
+    private func searchResponse(for request: MKLocalSearch.Request) async throws -> MKLocalSearch.Response {
+        try Task.checkCancellation()
+        let search = MKLocalSearch(request: request)
+        return try await withTaskCancellationHandler {
+            try Task.checkCancellation()
+            let response = try await search.start()
+            try Task.checkCancellation()
+            return response
+        } onCancel: {
+            Task { @MainActor in
+                search.cancel()
+            }
+        }
     }
 
     private func citySearchItem(from mapItem: MKMapItem, idPrefix: String) -> CitySearchItem? {
@@ -392,29 +425,42 @@ final class CitySearchProvider {
             city: city,
             country: country,
             timeZoneIdentifier: timeZoneIdentifier,
-            aliases: []
+            aliases: [],
+            geographicalEvidence: Self.geographicalEvidence(from: mapItem)
+        )
+    }
+
+    private static func geographicalEvidence(from mapItem: MKMapItem) -> CitySearchItem.GeographicalEvidence {
+        let coordinate = mapItem.location.coordinate
+        let representations = mapItem.addressRepresentations
+        return CitySearchItem.GeographicalEvidence(
+            placeIdentifier: mapItem.identifier?.rawValue,
+            alternatePlaceIdentifiers: mapItem.alternateIdentifiers.map(\.rawValue).sorted(),
+            originalName: mapItem.name,
+            cityName: representations?.cityName,
+            countryCode: representations?.region?.identifier,
+            coordinates: CLLocationCoordinate2DIsValid(coordinate)
+                ? .init(latitude: coordinate.latitude, longitude: coordinate.longitude) : nil,
+            cityWithContext: representations?.cityWithContext,
+            cityWithFullContext: representations?.cityWithContext(.full),
+            fullAddress: mapItem.address?.fullAddress,
+            shortAddress: mapItem.address?.shortAddress,
+            pointOfInterestCategory: mapItem.pointOfInterestCategory?.rawValue
         )
     }
 
     private func mergeResults(
         localResults: [CitySearchItem],
         fallbackResults: [CitySearchItem],
-        excluding existingTimeZoneIDs: Set<String>
+        excluding existingTimeZoneIDs: Set<String>,
+        existingCanonicalIDs: Set<String>
     ) -> [CitySearchItem] {
-        var merged: [CitySearchItem] = []
-
-        func appendIfNeeded(_ item: CitySearchItem) {
-            merged.append(item)
-        }
-
-        for item in localResults {
-            appendIfNeeded(item)
-        }
-        for item in fallbackResults {
-            appendIfNeeded(item)
-        }
-
-        return Array(merged.prefix(mergedResultLimit))
+        Array(CitySearchDeduplicator.merge(
+            local: localResults,
+            remote: fallbackResults,
+            catalog: indexedLocalItems.map(\.item),
+            existingCanonicalIDs: existingCanonicalIDs
+        ).prefix(mergedResultLimit))
     }
 
     private static func localRank(for indexed: IndexedLocalItem, query: String) -> Int? {

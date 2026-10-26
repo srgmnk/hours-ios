@@ -17,20 +17,24 @@ final class ParallaxMotionManager: ObservableObject {
     private let maxTiltRadians: Double = 0.45
     private let smoothingFactor: CGFloat = 0.16
     private var isRunning = false
+    private var motionGeneration: UInt64 = 0
 
     func start() {
         guard !isRunning else { return }
         guard motionManager.isDeviceMotionAvailable else { return }
 
+        motionGeneration &+= 1
+        let generation = motionGeneration
         motionManager.deviceMotionUpdateInterval = 1.0 / 45.0
-        motionManager.startDeviceMotionUpdates(to: motionQueue) { [weak self] motion, _ in
-            guard let self, let motion else { return }
+        motionManager.startDeviceMotionUpdates(to: motionQueue) { @Sendable [weak self, maxTiltRadians] motion, _ in
+            guard let motion else { return }
 
-            let clampedRoll = self.clamp(motion.attitude.roll / self.maxTiltRadians)
-            let clampedPitch = self.clamp(motion.attitude.pitch / self.maxTiltRadians)
+            let clampedRoll = Self.clamp(motion.attitude.roll / maxTiltRadians)
+            let clampedPitch = Self.clamp(motion.attitude.pitch / maxTiltRadians)
             let target = CGSize(width: clampedRoll, height: -clampedPitch)
 
-            Task { @MainActor in
+            Task { @MainActor [weak self] in
+                guard let self, self.isRunning, self.motionGeneration == generation else { return }
                 self.applySmoothedOffset(toward: target)
             }
         }
@@ -54,7 +58,7 @@ final class ParallaxMotionManager: ObservableObject {
         normalizedOffset = CGSize(width: nextX, height: nextY)
     }
 
-    private func clamp(_ value: Double) -> CGFloat {
+    nonisolated private static func clamp(_ value: Double) -> CGFloat {
         CGFloat(max(-1, min(1, value)))
     }
 }

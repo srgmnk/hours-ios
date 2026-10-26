@@ -616,12 +616,14 @@ struct CityDetailsView: View {
         }
 
         let center = UNUserNotificationCenter.current()
-        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, _ in
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { @Sendable granted, _ in
             guard granted else {
                 return
             }
 
-            schedulePushNotification(using: center)
+            Task { @MainActor in
+                schedulePushNotification(using: center)
+            }
         }
     }
 

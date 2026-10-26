@@ -7,6 +7,32 @@ import WidgetKit
 
 @MainActor
 final class CityStore: ObservableObject {
+    enum PersistenceStatus {
+        case loading
+        case loaded
+        case fileAbsent
+        case loadFailed(Error)
+        case unavailable(Error)
+        case saveFailed(Error)
+    }
+
+    // Injectable I/O keeps fault tests away from real app and widget storage.
+    struct Storage {
+        var read: (URL) throws -> Data = { try Data(contentsOf: $0) }
+        var write: (Data, URL) throws -> Void = { try $0.write(to: $1, options: [.atomic]) }
+        var sharedDefaults: (String) -> UserDefaults? = { UserDefaults(suiteName: $0) }
+        var reloadWidgets: () -> Void = {
+            #if canImport(WidgetKit)
+            WidgetCenter.shared.reloadAllTimelines()
+            #endif
+        }
+    }
+
+    private enum WidgetSyncFailure: Error {
+        case unavailableContainer
+        case unavailableDefaults
+    }
+
     private struct WidgetCityRecord: Codable {
         let id: String
         let canonicalName: String
@@ -27,60 +53,97 @@ final class CityStore: ObservableObject {
         }
     }
 
-    private let fileManager: FileManager
-    private let citiesFileURL: URL
-    private var isLoading = false
+    @Published private(set) var persistenceStatus: PersistenceStatus = .loading
+    @Published private(set) var widgetSyncError: Error?
 
-    init(fileManager: FileManager = .default) {
+    private let fileManager: FileManager
+    private let storage: Storage
+    private var citiesFileURL: URL?
+    private var isLoading = false
+    // Once a file was read (or could not be read), disappearance is not first launch.
+    private var requiresExistingFile = false
+
+    init(fileManager: FileManager = .default, storage: Storage? = nil) {
         self.fileManager = fileManager
-        do {
-            citiesFileURL = try Self.makeCitiesFileURL(fileManager: fileManager)
-        } catch {
-            let fallback = fileManager.temporaryDirectory.appendingPathComponent("cities.json", isDirectory: false)
-            citiesFileURL = fallback
-            log("Failed to resolve Application Support URL. Using fallback \(fallback.path). Error: \(error)")
-        }
+        self.storage = storage ?? Storage()
         load()
     }
 
     func load() {
         isLoading = true
+        persistenceStatus = .loading
         defer { isLoading = false }
 
         do {
-            try ensureParentDirectoryExists()
-            guard fileManager.fileExists(atPath: citiesFileURL.path) else {
+            citiesFileURL = try Self.makeCitiesFileURL(fileManager: fileManager)
+        } catch {
+            citiesFileURL = nil
+            persistenceStatus = .unavailable(error)
+            log("Failed to resolve Application Support URL. Error: \(error)")
+            return
+        }
+        guard let citiesFileURL else { return }
+
+        let data: Data
+        do {
+            data = try storage.read(citiesFileURL)
+        } catch {
+            let readError = error as NSError
+            if !requiresExistingFile,
+               readError.domain == NSCocoaErrorDomain,
+               readError.code == NSFileReadNoSuchFileError {
                 cities = []
-                syncWidgetSharedCities()
-                return
+                persistenceStatus = .fileAbsent
+            } else {
+                requiresExistingFile = true
+                persistenceStatus = .loadFailed(error)
+                log("Failed to read cities from \(citiesFileURL.path). Error: \(error)")
             }
-            let data = try Data(contentsOf: citiesFileURL)
+            return
+        }
+
+        requiresExistingFile = true
+        do {
             let decoded = try JSONDecoder().decode([City].self, from: data)
             let migration = migrateCanonicalIdentitiesIfNeeded(decoded)
             cities = migration.cities
-            syncWidgetSharedCities()
+            persistenceStatus = .loaded
             if migration.didMigrate {
                 save()
+            } else {
+                syncWidgetSharedCities(migration.cities)
             }
         } catch {
+            persistenceStatus = .loadFailed(error)
             log("Failed to load cities from \(citiesFileURL.path). Error: \(error)")
-            cities = []
-            syncWidgetSharedCities()
         }
     }
 
-    func save() {
+    // The result reports primary-file durability; widget failures are separate.
+    @discardableResult
+    func save() -> Bool {
+        switch persistenceStatus {
+        case .loaded, .fileAbsent: break
+        default: return false
+        }
+        guard let citiesFileURL else { return false }
+        let committedCities = cities
         do {
-            try ensureParentDirectoryExists()
+            try ensureParentDirectoryExists(for: citiesFileURL)
             let encoder = JSONEncoder()
             #if DEBUG
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             #endif
-            let data = try encoder.encode(cities)
-            try data.write(to: citiesFileURL, options: [.atomic])
-            syncWidgetSharedCities()
+            let data = try encoder.encode(committedCities)
+            try storage.write(data, citiesFileURL)
+            requiresExistingFile = true
+            persistenceStatus = .loaded
+            syncWidgetSharedCities(committedCities)
+            return true
         } catch {
+            persistenceStatus = .saveFailed(error)
             log("Failed to save cities to \(citiesFileURL.path). Error: \(error)")
+            return false
         }
     }
 
@@ -94,11 +157,8 @@ final class CityStore: ObservableObject {
         return applicationSupportDirectory.appendingPathComponent("cities.json", isDirectory: false)
     }
 
-    private func ensureParentDirectoryExists() throws {
-        let directory = citiesFileURL.deletingLastPathComponent()
-        if !fileManager.fileExists(atPath: directory.path) {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-        }
+    private func ensureParentDirectoryExists(for fileURL: URL) throws {
+        try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
     }
 
     private func migrateCanonicalIdentitiesIfNeeded(_ cities: [City]) -> (cities: [City], didMigrate: Bool) {
@@ -167,7 +227,7 @@ final class CityStore: ObservableObject {
         #endif
     }
 
-    private func syncWidgetSharedCities() {
+    private func syncWidgetSharedCities(_ cities: [City]) {
         let sharedCities = cities.map {
             WidgetCityRecord(
                 id: $0.id,
@@ -183,6 +243,8 @@ final class CityStore: ObservableObject {
             encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
             #endif
             let data = try encoder.encode(sharedCities)
+            var syncError: Error?
+            var didUpdateSnapshot = false
             if let sharedDirectoryURL = fileManager.containerURL(
                 forSecurityApplicationGroupIdentifier: WidgetSharedStorage.appGroupIdentifier
             ) {
@@ -190,20 +252,26 @@ final class CityStore: ObservableObject {
                     WidgetSharedStorage.citiesFileName,
                     isDirectory: false
                 )
-                try data.write(to: sharedFileURL, options: [.atomic])
+                try storage.write(data, sharedFileURL)
+                didUpdateSnapshot = true
             } else {
+                syncError = WidgetSyncFailure.unavailableContainer
                 log("Failed to open shared container for app group \(WidgetSharedStorage.appGroupIdentifier)")
             }
 
-            if let sharedDefaults = UserDefaults(suiteName: WidgetSharedStorage.appGroupIdentifier) {
+            if let sharedDefaults = storage.sharedDefaults(WidgetSharedStorage.appGroupIdentifier) {
                 sharedDefaults.set(data, forKey: WidgetSharedStorage.citiesKey)
+                didUpdateSnapshot = true
             } else {
+                syncError = syncError ?? WidgetSyncFailure.unavailableDefaults
                 log("Failed to open shared defaults for app group \(WidgetSharedStorage.appGroupIdentifier)")
             }
-            #if canImport(WidgetKit)
-            WidgetCenter.shared.reloadAllTimelines()
-            #endif
+            widgetSyncError = syncError
+            if didUpdateSnapshot {
+                storage.reloadWidgets()
+            }
         } catch {
+            widgetSyncError = error
             log("Failed to mirror cities to shared defaults. Error: \(error)")
         }
     }

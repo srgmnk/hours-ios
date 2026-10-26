@@ -1,6 +1,26 @@
 import Foundation
 
 struct CitySearchItem: Identifiable, Codable, Hashable {
+    // Optional matching evidence; excluded from presentation equality and persistence.
+    struct GeographicalEvidence {
+        struct Coordinates {
+            let latitude: Double
+            let longitude: Double
+        }
+
+        let placeIdentifier: String?
+        let alternatePlaceIdentifiers: [String]?
+        let originalName: String?
+        let cityName: String?
+        let countryCode: String?
+        let coordinates: Coordinates?
+        let cityWithContext: String?
+        let cityWithFullContext: String?
+        let fullAddress: String?
+        let shortAddress: String?
+        let pointOfInterestCategory: String?
+    }
+
     enum SpecialReferenceKind: String, Codable, Hashable {
         case utc
         case gmt
@@ -26,6 +46,32 @@ struct CitySearchItem: Identifiable, Codable, Hashable {
     let aliases: [String]
     let canonicalID: String?
     let specialReferenceKind: SpecialReferenceKind?
+    private(set) var geographicalEvidence: GeographicalEvidence? = nil
+
+    // Keep the existing serialized shape and presentation equality independent of evidence.
+    private enum CodingKeys: String, CodingKey {
+        case id, city, country, timeZoneIdentifier, aliases, canonicalID, specialReferenceKind
+    }
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.id == rhs.id &&
+        lhs.city == rhs.city &&
+        lhs.country == rhs.country &&
+        lhs.timeZoneIdentifier == rhs.timeZoneIdentifier &&
+        lhs.aliases == rhs.aliases &&
+        lhs.canonicalID == rhs.canonicalID &&
+        lhs.specialReferenceKind == rhs.specialReferenceKind
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(city)
+        hasher.combine(country)
+        hasher.combine(timeZoneIdentifier)
+        hasher.combine(aliases)
+        hasher.combine(canonicalID)
+        hasher.combine(specialReferenceKind)
+    }
 
     init(
         id: String,
@@ -34,7 +80,8 @@ struct CitySearchItem: Identifiable, Codable, Hashable {
         timeZoneIdentifier: String,
         aliases: [String],
         canonicalID: String? = nil,
-        specialReferenceKind: SpecialReferenceKind? = nil
+        specialReferenceKind: SpecialReferenceKind? = nil,
+        geographicalEvidence: GeographicalEvidence? = nil
     ) {
         self.id = id
         self.city = city
@@ -43,6 +90,7 @@ struct CitySearchItem: Identifiable, Codable, Hashable {
         self.aliases = aliases
         self.canonicalID = canonicalID
         self.specialReferenceKind = specialReferenceKind
+        self.geographicalEvidence = geographicalEvidence
     }
 
     var canonicalIdentity: String {

@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TimeDialView: View {
     @Environment(\.appTheme) private var theme
+    @Environment(\.scenePhase) private var scenePhase
     private static let tickCount = 288
     private static let tenMinuteTickInterval = 2
     private static let hourTickInterval = 12
@@ -15,9 +16,12 @@ struct TimeDialView: View {
     let onDragBegan: () -> Void
     let onDragChanged: (Double) -> Void
     let onDragEnded: (Double, Double) -> Void
+    let onDragCancelled: () -> Void
 
     @State private var dragStartAngle: Double?
     @State private var startRotationDegrees = 0.0
+    @GestureState private var isGestureActive = false
+    @State private var isDragCancelled = false
 
     var body: some View {
         let defaultTickColor = theme.textSecondary
@@ -92,7 +96,11 @@ struct TimeDialView: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
+                    .updating($isGestureActive) { _, active, _ in
+                        active = true
+                    }
                     .onChanged { value in
+                        guard scenePhase == .active, !isDragCancelled else { return }
                         let frame = geometry.frame(in: .global)
                         guard !Self.isInBottomDeadZone(value.startLocation, frame: frame, maxInteractiveGlobalY: maxInteractiveGlobalY) else {
                             return
@@ -119,9 +127,10 @@ struct TimeDialView: View {
                     }
                     .onEnded { value in
                         let frame = geometry.frame(in: .global)
-                        guard !Self.isInBottomDeadZone(value.startLocation, frame: frame, maxInteractiveGlobalY: maxInteractiveGlobalY),
+                        guard scenePhase == .active, !isDragCancelled,
+                              !Self.isInBottomDeadZone(value.startLocation, frame: frame, maxInteractiveGlobalY: maxInteractiveGlobalY),
                               let dragStartAngle else {
-                            self.dragStartAngle = nil
+                            cancelDrag()
                             return
                         }
 
@@ -150,9 +159,36 @@ struct TimeDialView: View {
             )
         }
         .frame(width: diameter, height: diameter)
+        .onChange(of: isGestureActive) { _, active in
+            if !active {
+                cancelDrag()
+                isDragCancelled = false
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                cancelDrag()
+            }
+        }
+        .onAppear {
+            if !isGestureActive {
+                cancelDrag()
+            }
+        }
+        .onDisappear(perform: cancelDrag)
         .onChange(of: resetSignal) { _, _ in
-            dragStartAngle = nil
-            startRotationDegrees = rotationDegrees
+            cancelDrag()
+        }
+    }
+
+    private func cancelDrag() {
+        let hadDrag = dragStartAngle != nil
+        dragStartAngle = nil
+        startRotationDegrees = rotationDegrees
+        // Ignore the rest of an explicitly interrupted drag until it becomes inactive.
+        isDragCancelled = isGestureActive
+        if hadDrag {
+            onDragCancelled()
         }
     }
 
@@ -186,10 +222,6 @@ struct TimeDialView: View {
         return CGPoint(x: point.x, y: min(point.y, maxLocalY))
     }
 
-    private static func tickIndex(for relativeStep: Int, centerTickIndex: Int) -> Int {
-        // Positive relStep must be on the visual LEFT side of center.
-        ((centerTickIndex - relativeStep) % tickCount + tickCount) % tickCount
-    }
 
     private static func clampedOffsetSteps(_ offsetStepsSigned: Int) -> Int {
         max(-(tickCount - 1), min(tickCount - 1, offsetStepsSigned))

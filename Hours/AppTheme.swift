@@ -28,8 +28,6 @@ struct AppTheme {
     let tagAddedText: Color
     let tagNeutralBackground: Color
     let tagNeutralText: Color
-    let glassFill: Color
-    let glassBorder: Color
     let pillNow: DialPillAppearance
     let pillPast: DialPillAppearance
     let pillFuture: DialPillAppearance
@@ -51,8 +49,6 @@ struct AppTheme {
         tagAddedText: Color(red: 0x56 / 255, green: 0x82 / 255, blue: 0x22 / 255),
         tagNeutralBackground: .clear,
         tagNeutralText: Color.black.opacity(0.3),
-        glassFill: Color.black.opacity(0.07),
-        glassBorder: Color.white.opacity(0.2),
         pillNow: DialPillAppearance(
             foregroundColor: Color.black.opacity(0.42),
             glassTintColor: nil,
@@ -87,8 +83,6 @@ struct AppTheme {
         tagAddedText: Color(red: 182.0 / 255.0, green: 208.0 / 255.0, blue: 145.0 / 255.0),
         tagNeutralBackground: .clear,
         tagNeutralText: Color.white.opacity(0.5),
-        glassFill: Color.white.opacity(0.12),
-        glassBorder: Color.white.opacity(0.25),
         pillNow: DialPillAppearance(
             foregroundColor: Color.white.opacity(0.80),
             glassTintColor: nil,

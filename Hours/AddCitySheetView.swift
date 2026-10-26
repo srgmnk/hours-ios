@@ -9,7 +9,7 @@ struct AddCitySheetView: View {
     @Environment(\.displayScale) private var displayScale
     @Environment(\.appTheme) private var theme
     @State private var query = ""
-    @State private var results: [CitySearchItem] = []
+    @State private var results: [DisplayResult] = []
     @State private var searchPhase: SearchPhase = .idle
     @State private var searchTask: Task<Void, Never>?
     @State private var isSearchFieldFocused = false
@@ -17,6 +17,9 @@ struct AddCitySheetView: View {
     @State private var selectedGMTOffset = CustomReferenceOffsetOption.zero(for: .gmt)
     @State private var activeCustomReferenceSelector: ActiveCustomReferenceSelector?
     @StateObject private var currentLocationProvider = CurrentLocationCityProvider()
+
+    private let referenceResults = DisplayResult.rows(for: CitySearchProvider.shared.referenceItemsForZeroState())
+    private let popularResults = DisplayResult.rows(for: CitySearchProvider.shared.popularCitiesForZeroState())
 
     private enum ActiveCustomReferenceSelector: String, Identifiable {
         case utc
@@ -35,14 +38,28 @@ struct AddCitySheetView: View {
     }
 
     private struct DisplayResult: Identifiable {
+        enum ID: Hashable {
+            case currentLocation
+            case result(CitySearchItem, occurrence: Int)
+        }
+
+        let id: ID
         let item: CitySearchItem?
         let isCurrentLocation: Bool
 
-        var id: String {
-            if isCurrentLocation {
-                return "current-location-row"
+        static func rows(for items: [CitySearchItem]) -> [DisplayResult] {
+            // Count only identical representations, not positions in the whole list.
+            // Different items may share both their source ID and canonical identity.
+            var occurrences: [CitySearchItem: Int] = [:]
+            return items.map { item in
+                let occurrence = occurrences[item, default: 0]
+                occurrences[item] = occurrence + 1
+                return DisplayResult(
+                    id: .result(item, occurrence: occurrence),
+                    item: item,
+                    isCurrentLocation: false
+                )
             }
-            return "city-result-\(item?.canonicalIdentity ?? "unknown")"
         }
     }
 
@@ -80,32 +97,25 @@ struct AddCitySheetView: View {
     }
 
     private var displayedSections: [DisplaySection] {
-        let mappedResults = results.map { DisplayResult(item: $0, isCurrentLocation: false) }
-
         guard trimmedQuery.isEmpty else {
-            return [DisplaySection(id: "search-results", results: mappedResults)]
+            return [DisplaySection(id: "search-results", results: results)]
         }
 
         var primaryResults: [DisplayResult] = []
         if currentLocationProvider.permissionState == .authorized,
            (currentLocationProvider.currentCityItem != nil || currentLocationProvider.isResolvingCurrentCity) {
             primaryResults.append(
-                DisplayResult(item: currentLocationProvider.currentCityItem, isCurrentLocation: true)
+                DisplayResult(id: .currentLocation, item: currentLocationProvider.currentCityItem, isCurrentLocation: true)
             )
         }
-        let referenceItems = CitySearchProvider.shared.referenceItemsForZeroState()
-        primaryResults.append(contentsOf: referenceItems.map { DisplayResult(item: $0, isCurrentLocation: false) })
-
-        let secondaryResults = CitySearchProvider.shared
-            .popularCitiesForZeroState()
-            .map { DisplayResult(item: $0, isCurrentLocation: false) }
+        primaryResults.append(contentsOf: referenceResults)
 
         var sections: [DisplaySection] = []
         if !primaryResults.isEmpty {
             sections.append(DisplaySection(id: "zero-state-primary", results: primaryResults))
         }
-        if !secondaryResults.isEmpty {
-            sections.append(DisplaySection(id: "zero-state-secondary", results: secondaryResults))
+        if !popularResults.isEmpty {
+            sections.append(DisplaySection(id: "zero-state-secondary", results: popularResults))
         }
 
         return sections
@@ -262,7 +272,7 @@ struct AddCitySheetView: View {
             matching: query,
             excluding: []
         )
-        results = local
+        results = DisplayResult.rows(for: local)
 
         let shouldFetchFallback = CitySearchProvider.shared.shouldFetchFallback(
             for: query,
@@ -278,14 +288,15 @@ struct AddCitySheetView: View {
                 let merged = await CitySearchProvider.shared.fallbackMergedResults(
                     matching: query,
                     localResults: local,
-                    excluding: []
+                    excluding: [],
+                    existingCanonicalIDs: existingCanonicalIDs
                 )
 
                 guard !Task.isCancelled else { return }
                 guard self.query == query else { return }
 
                 await MainActor.run {
-                    results = merged
+                    results = DisplayResult.rows(for: merged)
                 }
             }
             return
@@ -311,14 +322,15 @@ struct AddCitySheetView: View {
             let merged = await CitySearchProvider.shared.fallbackMergedResults(
                 matching: query,
                 localResults: local,
-                excluding: []
+                excluding: [],
+                existingCanonicalIDs: existingCanonicalIDs
             )
 
             guard !Task.isCancelled else { return }
             guard self.query == query else { return }
 
             await MainActor.run {
-                results = merged
+                results = DisplayResult.rows(for: merged)
                 searchPhase = .completed
             }
         }

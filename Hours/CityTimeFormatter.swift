@@ -21,12 +21,6 @@ enum CityTimeFormatter {
         return formatter
     }()
 
-    private static let detailsHeaderDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "d MMM"
-        return formatter
-    }()
 
     static func formatTime(_ instant: Date, in timeZone: TimeZone) -> String {
         let components = formatTimeComponents(instant, in: timeZone)
@@ -62,10 +56,6 @@ enum CityTimeFormatter {
         return dateFormatter.string(from: instant)
     }
 
-    static func formatDetailsHeader(_ instant: Date, in timeZone: TimeZone) -> String {
-        detailsHeaderDateFormatter.timeZone = timeZone
-        return "\(formatTime(instant, in: timeZone)), \(detailsHeaderDateFormatter.string(from: instant))"
-    }
 
     static func formatUTCOffset(_ instant: Date, in timeZone: TimeZone) -> String {
         let seconds = timeZone.secondsFromGMT(for: instant)

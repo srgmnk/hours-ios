@@ -12,13 +12,20 @@ struct OnboardingView: View {
 
     var body: some View {
         GeometryReader { geo in
-            let scale = geo.size.width / OnboardingLayout.canvasWidth
+            let widthScale = geo.size.width / OnboardingLayout.canvasWidth
+            let fullHeight = geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
+            let heightScale = (fullHeight - geo.safeAreaInsets.bottom) / OnboardingLayout.contentHeight
+            let scale = min(widthScale, heightScale)
+            let buttonBottom = scale < widthScale
+                ? max(OnboardingLayout.buttonBottom * scale, geo.safeAreaInsets.bottom)
+                : OnboardingLayout.buttonBottom * scale
 
             ZStack {
                 SheetStyle.appScreenBackground(for: theme)
                     .ignoresSafeArea()
 
                 OnboardingStepView(step: currentStep, scale: scale)
+                    .frame(width: OnboardingLayout.canvasWidth * scale)
                     .id(currentStep)
                     .transition(.opacity)
 
@@ -34,7 +41,7 @@ struct OnboardingView: View {
                             .modifier(GlassSurfaceModifier(shape: Capsule()))
                     }
                     .buttonStyle(.plain)
-                    .padding(.bottom, OnboardingLayout.buttonBottom * scale)
+                    .padding(.bottom, buttonBottom)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -200,6 +207,7 @@ private enum OnboardingLayout {
     static let artworkTop: CGFloat = 286
     static let artworkWidth: CGFloat = 593
     static let artworkHeight: CGFloat = 511
+    static let contentHeight: CGFloat = artworkTop + artworkHeight
     static let buttonWidth: CGFloat = 345
     static let buttonHeight: CGFloat = 64
     static let buttonBottom: CGFloat = 24

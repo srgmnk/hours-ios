@@ -74,6 +74,13 @@ final class TimeDialViewModel: ObservableObject {
         startInertia(from: currentRotation, predicted: predictedRotation)
     }
 
+    func cancelDialDrag() {
+        inertiaTask?.cancel()
+        if isInteracting {
+            isInteracting = false
+        }
+    }
+
     func resetToNow() {
         inertiaTask?.cancel()
         dialSteps = 0
@@ -144,6 +151,7 @@ final class TimeDialViewModel: ObservableObject {
                 try? await Task.sleep(nanoseconds: 16_666_667)
             }
 
+            guard !Task.isCancelled else { return }
             self.snapToNearestStep()
         }
     }

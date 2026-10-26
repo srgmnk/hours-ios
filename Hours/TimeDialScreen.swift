@@ -3,6 +3,14 @@ import UIKit
 import Combine
 
 struct TimeDialScreen: View {
+    private enum PersistenceAlertStatus: Equatable {
+        case loading, loaded, fileAbsent, loadFailed, unavailable, saveFailed
+    }
+
+    private enum PresentedSheet: Hashable {
+        case addCity, settings, rename, cityDetails
+    }
+
     private struct CityDetailsPresentation: Identifiable {
         let id = UUID()
         let city: City
@@ -26,6 +34,10 @@ struct TimeDialScreen: View {
     @State private var cityBeingRenamed: City?
     @State private var cityDetailsPresentation: CityDetailsPresentation?
     @State private var pendingAddedCityItem: CitySearchItem?
+    @State private var isPersistenceAlertPresented = false
+    @State private var hasAcknowledgedPersistenceFailure = false
+    @State private var sheetsAwaitingDismissal: Set<PresentedSheet> = []
+    @AppStorage(OnboardingStorageKey.hasCompleted) private var hasCompletedOnboarding = false
     @AppStorage(CityViewPreference.storageKey) private var cityViewPreferenceRawValue = CityViewPreference.basic.rawValue
     @StateObject private var emptyStateQuoteProvider = EmptyStateQuoteProvider()
 
@@ -56,110 +68,144 @@ struct TimeDialScreen: View {
     }
 
     var body: some View {
+        GeometryReader { container in
         GeometryReader { geo in
             let topSafeInset = resolvedTopSafeAreaInset(from: geo)
-            let topControlsTop = topButtonTopOffset - max(0, 59 - topSafeInset)
+            let topControlsTop = max(
+                topButtonTopOffset - max(0, 59 - container.safeAreaInsets.top),
+                container.safeAreaInsets.top + topButtonBarTopPadding
+            )
             let isCitiesEmpty = cityStore.cities.isEmpty
             let sharedLogoTopInset = topSafeInset + topButtonBarTopPadding + ((topButtonBarHeight - logoHeight) / 2)
 
-            ZStack(alignment: .bottom) {
-                SheetStyle.appScreenBackground(for: theme)
-                    .ignoresSafeArea()
+            TimeDialObservedContent(viewModel: viewModel) { selectedInstant, rotationDegrees, dialSteps, resetSignal, mode, deltaText in
+                ZStack(alignment: .bottom) {
+                    SheetStyle.appScreenBackground(for: theme)
+                        .ignoresSafeArea()
 
-                Group {
-                    if isCitiesEmpty {
-                        ZStack(alignment: .top) {
-                            MainEmptyStateQuoteView(quote: emptyStateQuoteProvider.currentQuote)
-                                .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
+                    Group {
+                        if isCitiesEmpty {
+                            ZStack(alignment: .top) {
+                                MainEmptyStateQuoteView(quote: emptyStateQuoteProvider.currentQuote)
+                                    .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
 
-                            Image("HoursLogo")
-                                .resizable()
-                                .scaledToFit()
-                                .frame(width: logoWidth, height: logoHeight)
-                                .padding(.top, sharedLogoTopInset)
-                        }
-                        .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
-                        .allowsHitTesting(false)
-                        .onAppear {
-                            withAnimation(.easeInOut(duration: 0.25)) {
-                                emptyStateQuoteProvider.randomizeQuote()
+                                Image("HoursLogo")
+                                    .resizable()
+                                    .scaledToFit()
+                                    .frame(width: logoWidth, height: logoHeight)
+                                    .padding(.top, sharedLogoTopInset)
                             }
-                        }
-                        .overlay {
-                            ShakeDetectorView {
-                                changeQuote()
-                            }
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .center)
                             .allowsHitTesting(false)
+                            .onAppear {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    emptyStateQuoteProvider.randomizeQuote()
+                                }
+                            }
+                            .overlay {
+                                ShakeDetectorView {
+                                    changeQuote()
+                                }
+                                .allowsHitTesting(false)
+                            }
+                        } else {
+                            CityListReorderUIKitView(
+                                cities: $cityStore.cities,
+                                selectedInstant: selectedInstant,
+                                userCurrentLocationItem: currentLocationProvider.currentCityItem,
+                                cityViewPreference: selectedCityViewPreference,
+                                // Keep scroll content layout independent from pinned button offset.
+                                topSafeAreaInset: topButtonBarTopPadding + ((topButtonBarHeight - logoHeight) / 2),
+                                // Desired visual stop gap from physical screen bottom.
+                                bottomContentInset: cityListDesiredBottomGap,
+                                cardBackgroundColor: SheetStyle.appCardBackground(for: theme),
+                                onRenameRequested: presentRenameSheet(for:),
+                                onCitySelected: presentCityDetails(for:)
+                            )
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         }
-                    } else {
-                        CityListReorderUIKitView(
-                            cities: $cityStore.cities,
-                            selectedInstant: viewModel.selectedInstant,
-                            userCurrentLocationItem: currentLocationProvider.currentCityItem,
-                            cityViewPreference: selectedCityViewPreference,
-                            // Keep scroll content layout independent from pinned button offset.
-                            topSafeAreaInset: topButtonBarTopPadding + ((topButtonBarHeight - logoHeight) / 2),
-                            // Desired visual stop gap from physical screen bottom.
-                            bottomContentInset: cityListDesiredBottomGap,
-                            cardBackgroundColor: SheetStyle.appCardBackground(for: theme),
-                            onRenameRequested: presentRenameSheet(for:),
-                            onCitySelected: presentCityDetails(for:)
-                        )
-                        .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                     }
-                }
-                .id(isCitiesEmpty ? "empty" : "list")
-                .zIndex(isCitiesEmpty ? 1 : 0)
+                    .id(isCitiesEmpty ? "empty" : "list")
+                    .zIndex(isCitiesEmpty ? 1 : 0)
 
-                ProgressiveBottomBlurOverlay(height: 180)
-                    .allowsHitTesting(false)
+                    ProgressiveBottomBlurOverlay(height: 180)
+                        .allowsHitTesting(false)
 
-                dialOverlay(in: geo)
-                    // Measure the rendered dial overlay height and feed it into list bottom padding.
-                    .background(
-                        GeometryReader { proxy in
-                            Color.clear
-                                .preference(key: DialOverlayHeightPreferenceKey.self, value: proxy.size.height)
-                        }
+                    dialOverlay(
+                        in: geo,
+                        rotationDegrees: rotationDegrees,
+                        stepIndex: dialSteps,
+                        resetSignal: resetSignal,
+                        mode: mode,
+                        deltaText: deltaText
                     )
+                        // Measure the rendered dial overlay height and feed it into list bottom padding.
+                        .background(
+                            GeometryReader { proxy in
+                                Color.clear
+                                    .preference(key: DialOverlayHeightPreferenceKey.self, value: proxy.size.height)
+                            }
+                        )
 
-            }
-            .overlay(alignment: .top) {
-                topButtonBar()
-                    .padding(.top, topControlsTop)
+                }
+                .overlay(alignment: .top) {
+                    let horizontalControls = topButtonBar()
+                        .padding(.leading, container.safeAreaInsets.leading)
+                        .padding(.trailing, container.safeAreaInsets.trailing)
+                        .padding(.top, topControlsTop)
+                    Group {
+                        if #available(iOS 27.1, *) {
+                            TrailingRegionControls(
+                                geometry: geo,
+                                contentFrame: container.frame(in: .global),
+                                wheelFrame: CGRect(
+                                    x: (geo.size.width - dialSize) / 2,
+                                    y: geo.size.height - 2 * geo.safeAreaInsets.bottom + dialCenterYOffset - dialSize / 2,
+                                    width: dialSize, height: dialSize
+                                ),
+                                horizontal: horizontalControls,
+                                settings: settingsButton(),
+                                add: addButton(iconOnly: true)
+                            )
+                        } else {
+                            horizontalControls
+                        }
+                    }
                     .ignoresSafeArea(edges: .top)
                     .zIndex(10)
-            }
-            .onPreferenceChange(DialOverlayHeightPreferenceKey.self) { measuredHeight in
-                guard measuredHeight > 0 else { return }
-                dialHeight = measuredHeight
-            }
-            .onAppear {
-                prepareDialHaptics()
-                resetNotificationHaptics.prepare()
-                lastSnappedOffsetSteps = viewModel.dialSteps
-                currentLocationProvider.requestCurrentCity()
-            }
-            .onChange(of: viewModel.dialSteps) { _, newStep in
-                guard newStep != lastSnappedOffsetSteps else { return }
-                let tickType: String
-                if newStep == 0 {
-                    tickType = "zero"
-                } else if abs(newStep).isMultiple(of: 12) {
-                    tickType = "big"
-                } else {
-                    tickType = "small"
                 }
-                log(
-                    "[DIAL] snappedStep \(lastSnappedOffsetSteps) -> \(newStep) " +
-                    "kind=\(tickType)"
-                )
-                fireHapticForSnappedStep(newStep)
-                lastSnappedOffsetSteps = newStep
+                .onPreferenceChange(DialOverlayHeightPreferenceKey.self) { measuredHeight in
+                    guard measuredHeight > 0 else { return }
+                    dialHeight = measuredHeight
+                }
+                .onAppear {
+                    prepareDialHaptics()
+                    resetNotificationHaptics.prepare()
+                    lastSnappedOffsetSteps = viewModel.dialSteps
+                    currentLocationProvider.requestCurrentCity()
+                }
+                .onChange(of: dialSteps) { _, newStep in
+                    guard newStep != lastSnappedOffsetSteps else { return }
+                    let tickType: String
+                    if newStep == 0 {
+                        tickType = "zero"
+                    } else if abs(newStep).isMultiple(of: 12) {
+                        tickType = "big"
+                    } else {
+                        tickType = "small"
+                    }
+                    log(
+                        "[DIAL] snappedStep \(lastSnappedOffsetSteps) -> \(newStep) " +
+                        "kind=\(tickType)"
+                    )
+                    fireHapticForSnappedStep(newStep)
+                    lastSnappedOffsetSteps = newStep
+                }
             }
         }
         .id("\(cityStore.cities.isEmpty ? "empty" : "list")-\(colorScheme == .dark ? "dark" : "light")")
         .ignoresSafeArea()
+        }
         .sheet(isPresented: $isAddCitySheetPresented, onDismiss: {
             if let pendingItem = pendingAddedCityItem {
                 pendingAddedCityItem = nil
@@ -168,6 +214,7 @@ struct TimeDialScreen: View {
                 }
             }
             currentLocationProvider.requestCurrentCity()
+            persistenceSheetDidDismiss(.addCity)
         }) {
             AddCitySheetView(
                 existingCanonicalIDs: Set(cityStore.cities.map(\.id))
@@ -175,15 +222,21 @@ struct TimeDialScreen: View {
                 pendingAddedCityItem = selectedItem
             }
         }
-        .sheet(isPresented: $isSettingsSheetPresented) {
+        .sheet(isPresented: $isSettingsSheetPresented, onDismiss: {
+            persistenceSheetDidDismiss(.settings)
+        }) {
             SettingsSheetView()
         }
-        .sheet(item: $cityBeingRenamed) { city in
+        .sheet(item: $cityBeingRenamed, onDismiss: {
+            persistenceSheetDidDismiss(.rename)
+        }) { city in
             ChangeCityNameSheetView(city: city) { customName in
                 applyCustomDisplayName(customName, toCityID: city.id)
             }
         }
-        .sheet(item: $cityDetailsPresentation) { presentation in
+        .sheet(item: $cityDetailsPresentation, onDismiss: {
+            persistenceSheetDidDismiss(.cityDetails)
+        }) { presentation in
             CityDetailsView(
                 city: presentation.city,
                 primaryCity: presentation.primaryCity,
@@ -198,57 +251,127 @@ struct TimeDialScreen: View {
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
                 currentLocationProvider.requestCurrentCity()
+                updatePersistenceAlert()
             }
         }
+        .onChange(of: persistenceAlertStatus, initial: true) { _, _ in
+            updatePersistenceAlert()
+        }
+        .onChange(of: hasCompletedOnboarding) { _, _ in
+            updatePersistenceAlert()
+        }
+        .alert("Unable to Save Changes", isPresented: $isPersistenceAlertPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("City changes cannot be saved right now. Changes made in the app may be lost when you close it.")
+        }
+    }
+
+    private var persistenceAlertStatus: PersistenceAlertStatus {
+        switch cityStore.persistenceStatus {
+        case .loading: return .loading
+        case .loaded: return .loaded
+        case .fileAbsent: return .fileAbsent
+        case .loadFailed: return .loadFailed
+        case .unavailable: return .unavailable
+        case .saveFailed: return .saveFailed
+        }
+    }
+
+    private func updatePersistenceAlert() {
+        switch persistenceAlertStatus {
+        case .loading:
+            return
+        case .loaded, .fileAbsent:
+            hasAcknowledgedPersistenceFailure = false
+            isPersistenceAlertPresented = false
+            return
+        case .loadFailed, .unavailable, .saveFailed:
+            break
+        }
+
+        guard !hasAcknowledgedPersistenceFailure,
+              !isPersistenceAlertPresented,
+              scenePhase == .active,
+              hasCompletedOnboarding,
+              sheetsAwaitingDismissal.isEmpty,
+              !isAddCitySheetPresented, !isSettingsSheetPresented,
+              cityBeingRenamed == nil, cityDetailsPresentation == nil else { return }
+
+        hasAcknowledgedPersistenceFailure = true
+        isPersistenceAlertPresented = true
+    }
+
+    private func persistenceSheetDidDismiss(_ sheet: PresentedSheet) {
+        sheetsAwaitingDismissal.remove(sheet)
+        updatePersistenceAlert()
     }
 
     private func topButtonBar() -> some View {
         GlassEffectContainer(spacing: 10) {
             HStack {
-                Button(action: {
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred()
-                    isAddCitySheetPresented = true
-                }) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "plus.capsule.fill")
-                            .font(.system(size: 16, weight: .medium))
-                        Text("Add")
-                            .font(.system(size: 16, weight: .medium))
-                            .tracking(-0.64)
-                    }
-                    .foregroundStyle(theme.textPrimary.opacity(0.90))
-                    .frame(width: 87, height: topButtonBarHeight)
-                    .modifier(GlassSurfaceModifier(shape: Capsule()))
-                }
-                .buttonStyle(.plain)
-
+                addButton(iconOnly: false)
                 Spacer(minLength: 0)
-
-                Button(action: {
-                    let generator = UIImpactFeedbackGenerator(style: .medium)
-                    generator.impactOccurred()
-                    isSettingsSheetPresented = true
-                }) {
-                    Image(systemName: "line.3.horizontal.decrease")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(theme.textPrimary.opacity(0.90))
-                        .frame(width: topButtonBarHeight, height: topButtonBarHeight)
-                        .modifier(GlassSurfaceModifier(shape: Circle()))
-                }
-                .buttonStyle(.plain)
+                settingsButton()
             }
             .padding(.horizontal, 20)
         }
     }
 
-    private func dialOverlay(in geo: GeometryProxy) -> some View {
+    private func addButton(iconOnly: Bool) -> some View {
+        Button(action: {
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            sheetsAwaitingDismissal.insert(.addCity)
+            isAddCitySheetPresented = true
+        }) {
+            HStack(spacing: 4) {
+                Image(systemName: "plus.capsule.fill")
+                    .font(.system(size: 16, weight: .medium))
+                if !iconOnly {
+                    Text("Add")
+                        .font(.system(size: 16, weight: .medium))
+                        .tracking(-0.64)
+                }
+            }
+            .foregroundStyle(theme.textPrimary.opacity(0.90))
+            .frame(width: iconOnly ? topButtonBarHeight : 87, height: topButtonBarHeight)
+            .modifier(GlassSurfaceModifier(shape: Capsule()))
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(iconOnly ? "Add City" : "Add")
+    }
+
+    private func settingsButton() -> some View {
+        Button(action: {
+            let generator = UIImpactFeedbackGenerator(style: .medium)
+            generator.impactOccurred()
+            sheetsAwaitingDismissal.insert(.settings)
+            isSettingsSheetPresented = true
+        }) {
+            Image(systemName: "line.3.horizontal.decrease")
+                .font(.system(size: 16, weight: .medium))
+                .foregroundStyle(theme.textPrimary.opacity(0.90))
+                .frame(width: topButtonBarHeight, height: topButtonBarHeight)
+                .modifier(GlassSurfaceModifier(shape: Circle()))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func dialOverlay(
+        in geo: GeometryProxy,
+        rotationDegrees: Double,
+        stepIndex: Int,
+        resetSignal: Int,
+        mode: DeltaPillView.PillMode,
+        deltaText: String
+    ) -> some View {
         ZStack(alignment: .bottom) {
             TimeDialView(
                 diameter: dialSize,
-                rotationDegrees: viewModel.rotationDegrees,
-                stepIndex: viewModel.dialSteps,
-                resetSignal: viewModel.resetSignal,
+                rotationDegrees: rotationDegrees,
+                stepIndex: stepIndex,
+                resetSignal: resetSignal,
                 maxInteractiveGlobalY: geo.frame(in: .global).maxY - 16,
                 onDragBegan: {
                     guard !isDraggingSessionActive else { return }
@@ -258,22 +381,23 @@ struct TimeDialScreen: View {
                     log("[DIAL] drag begin")
                 },
                 onDragChanged: { rotation in
+                    guard isDraggingSessionActive else { return }
                     viewModel.updateDialRotation(rotation)
                 },
                 onDragEnded: { currentRotation, predictedRotation in
-                    if isDraggingSessionActive {
-                        log("[DIAL] drag end")
-                    }
+                    guard isDraggingSessionActive else { return }
+                    log("[DIAL] drag end")
                     isDraggingSessionActive = false
                     viewModel.endDialDrag(currentRotation: currentRotation, predictedRotation: predictedRotation)
-                }
+                },
+                onDragCancelled: cancelDialDrag
             )
             .position(x: geo.size.width / 2, y: dialOverlayHeight + dialCenterYOffset)
             .allowsHitTesting(true)
 
             DeltaPillView(
-                mode: pillMode,
-                deltaText: absDeltaString,
+                mode: mode,
+                deltaText: deltaText,
                 onTapReset: resetToNow
             )
             .padding(.bottom, 32)
@@ -285,22 +409,14 @@ struct TimeDialScreen: View {
         .allowsHitTesting(true)
     }
 
-    private var absDeltaString: String {
-        let minutes = abs(viewModel.deltaMinutes)
-        let hours = minutes / 60
-        let mins = minutes % 60
-        return "\(hours):" + String(format: "%02d", mins)
-    }
-
-    private var pillMode: DeltaPillView.PillMode {
-        switch viewModel.mode {
-        case .now: return .now
-        case .future: return .future
-        case .past: return .past
-        }
+    private func cancelDialDrag() {
+        guard isDraggingSessionActive else { return }
+        isDraggingSessionActive = false
+        viewModel.cancelDialDrag()
     }
 
     private func resetToNow() {
+        cancelDialDrag()
         withAnimation(.spring(response: 0.36, dampingFraction: 0.86)) {
             viewModel.resetToNow()
         }
@@ -362,6 +478,7 @@ struct TimeDialScreen: View {
     }
 
     private func presentRenameSheet(for city: City) {
+        sheetsAwaitingDismissal.insert(.rename)
         cityBeingRenamed = city
     }
 
@@ -371,6 +488,7 @@ struct TimeDialScreen: View {
     }
 
     private func presentCityDetails(for city: City) {
+        sheetsAwaitingDismissal.insert(.cityDetails)
         cityDetailsPresentation = CityDetailsPresentation(
             city: city,
             primaryCity: cityStore.cities.first ?? city,
@@ -386,6 +504,38 @@ struct TimeDialScreen: View {
 
         withAnimation(.easeInOut(duration: 0.25)) {
             emptyStateQuoteProvider.randomizeQuote()
+        }
+    }
+}
+
+// Observe below the geometry boundary; invoke the builder with fresh model values.
+private struct TimeDialObservedContent<Content: View>: View {
+    @ObservedObject var viewModel: TimeDialViewModel
+    @ViewBuilder let content: (Date, Double, Int, Int, DeltaPillView.PillMode, String) -> Content
+
+    var body: some View {
+        let selectedInstant = viewModel.selectedInstant
+        let rotationDegrees = viewModel.rotationDegrees
+        let dialSteps = viewModel.dialSteps
+        let resetSignal = viewModel.resetSignal
+        let mode = pillMode
+        let deltaText = absDeltaString
+
+        content(selectedInstant, rotationDegrees, dialSteps, resetSignal, mode, deltaText)
+    }
+
+    private var absDeltaString: String {
+        let minutes = abs(viewModel.deltaMinutes)
+        let hours = minutes / 60
+        let mins = minutes % 60
+        return "\(hours):" + String(format: "%02d", mins)
+    }
+
+    private var pillMode: DeltaPillView.PillMode {
+        switch viewModel.mode {
+        case .now: return .now
+        case .future: return .future
+        case .past: return .past
         }
     }
 }
@@ -1146,6 +1296,7 @@ private final class CityListLogoHeaderView: UICollectionReusableView {
     private var heightConstraint: NSLayoutConstraint?
     private var widthConstraint: NSLayoutConstraint?
     private var bottomConstraint: NSLayoutConstraint?
+    private var centerXConstraint: NSLayoutConstraint?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1157,23 +1308,45 @@ private final class CityListLogoHeaderView: UICollectionReusableView {
         let heightConstraint = imageView.heightAnchor.constraint(equalToConstant: 15)
         let widthConstraint = imageView.widthAnchor.constraint(equalToConstant: 49)
         let bottomConstraint = bottomAnchor.constraint(greaterThanOrEqualTo: imageView.bottomAnchor)
+        let centerXConstraint = imageView.centerXAnchor.constraint(equalTo: centerXAnchor)
         NSLayoutConstraint.activate([
             topConstraint,
             heightConstraint,
             widthConstraint,
             bottomConstraint,
-            imageView.centerXAnchor.constraint(equalTo: centerXAnchor)
+            centerXConstraint
         ])
 
         self.topConstraint = topConstraint
         self.heightConstraint = heightConstraint
         self.widthConstraint = widthConstraint
         self.bottomConstraint = bottomConstraint
+        self.centerXConstraint = centerXConstraint
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func layoutSubviews() {
+        if let collectionView = superview as? UICollectionView,
+           let cell = collectionView.visibleCells.first {
+            let cellFrame = cell.contentView.convert(cell.contentView.bounds, to: collectionView)
+            let safeFrame = collectionView.safeAreaLayoutGuide.layoutFrame
+            let leading = max(cellFrame.minX, safeFrame.minX)
+            let trailing = min(cellFrame.maxX, safeFrame.maxX)
+            if trailing > leading {
+                let center = convert(CGPoint(x: (leading + trailing) / 2, y: cellFrame.midY), from: collectionView)
+                centerXConstraint?.constant = center.x - bounds.midX
+            }
+        }
+        super.layoutSubviews()
+    }
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        setNeedsLayout()
     }
 
     func configure(topInset: CGFloat, logoHeight: CGFloat, logoWidth: CGFloat, logoBottomSpacing: CGFloat) {
@@ -1250,1100 +1423,55 @@ private final class CityListReorderCollectionCell: UICollectionViewCell {
     }
 }
 
-struct CityListView: View {
-    @Environment(\.appTheme) private var theme
-    @Binding var cities: [City]
-    let selectedInstant: Date
-    let currentCity: City
-    let topSafeAreaInset: CGFloat
-    let bottomContentInset: CGFloat
+@available(iOS 27.1, *)
+private struct TrailingRegionControls<Horizontal: View, Settings: View, Add: View>: View {
+    @Environment(\.toolbarVerticalEdge) private var toolbarEdge
+    @Environment(\.layoutDirection) private var layoutDirection
+    let geometry: GeometryProxy
+    let contentFrame: CGRect
+    let wheelFrame: CGRect
+    let horizontal: Horizontal
+    let settings: Settings
+    let add: Add
 
-    @StateObject private var reorderController = ReorderController()
-    @StateObject private var scrollViewHolder = ScrollViewHolder()
-    @State private var lastGlobalRowFrames: [City.ID: CGRect] = [:]
-    @State private var lastGlobalRowFramesHash: Int = 0
-    @State private var rowFrames: [City.ID: CGRect] = [:]
-    @State private var pendingRowFrames: [City.ID: CGRect] = [:]
-    @State private var rowFramesCommitScheduled = false
-    @State private var activeRowFramesSnapshot: [City.ID: CGRect]?
-    @State private var beginContentOffsetY: CGFloat = 0
-    @State private var hasContentSpaceRowFrames = false
-    @State private var lastRowFramesHash: Int = 0
-    @State private var didLogReorderDataNotReady = false
-    @State private var scrollViewport: CGRect = .zero
-    @State private var lastContentProbeHeight: Int = -1
-    @State private var lastViewportProbeHeight: Int = -1
-
-    private let cardHeight: CGFloat = 140
-    private let cardSpacing: CGFloat = 8
-    private let horizontalPadding: CGFloat = 16
-    private let reorderStartHaptics = UIImpactFeedbackGenerator(style: .light)
-    private let reorderDropHaptics = UINotificationFeedbackGenerator()
-    private let autoScrollTimer = Timer.publish(every: 1.0 / 60.0, on: .main, in: .common).autoconnect()
+    private var stackFrame: CGRect? {
+        // Query physical coordinates; map the semantic toolbar edge explicitly for RTL.
+        let isRightEdge = layoutDirection == .leftToRight ? toolbarEdge == .trailing : toolbarEdge == .leading
+        guard isRightEdge else { return nil }
+        let bounds = CGRect(origin: .zero, size: geometry.size)
+        let origin = geometry.frame(in: .global).origin
+        let content = contentFrame.offsetBy(dx: -origin.x, dy: -origin.y)
+        let lane = CGRect(x: content.maxX, y: bounds.minY, width: bounds.maxX - content.maxX, height: bounds.height)
+        guard lane.width >= 48, content.width > 0, bounds.contains(lane) else { return nil }
+        let occlusions = geometry.reservedRegions(kind: .occlusion, layoutDirectionBehavior: .fixed)
+        let divisions = geometry.reservedRegions(kind: .division, layoutDirectionBehavior: .fixed)
+        // A nonzero inset alone is insufficient, including during initial attachment.
+        guard occlusions.contains(where: {
+            $0.frame.minX <= lane.minX && $0.frame.maxX >= lane.maxX &&
+            $0.frame.minY <= bounds.minY && $0.frame.height > 0
+        }) else { return nil }
+        // ReservedRegion.frame already includes its interactive-content margins.
+        let exclusions = (occlusions + divisions).map(\.frame)
+        let top = exclusions.filter { $0.intersects(lane) }.map(\.maxY).max() ?? bounds.minY
+        let frame = CGRect(x: lane.midX - 24, y: top + 12, width: 48, height: 108)
+        guard bounds.contains(frame), frame.maxY <= content.maxY,
+              !frame.intersects(content), !frame.intersects(wheelFrame),
+              !exclusions.contains(where: { $0.intersects(frame) }) else { return nil }
+        return frame
+    }
 
     var body: some View {
-        GeometryReader { listGeo in
-            ZStack(alignment: .topLeading) {
-            ScrollView {
-                LazyVStack(spacing: cardSpacing) {
-                    ForEach(Array(cities.enumerated()), id: \.element.id) { index, city in
-                        rowView(for: city, at: index)
-                            .background(
-                                GeometryReader { proxy in
-                                    Color.clear.preference(
-                                        key: CityRowFramePreferenceKey.self,
-                                        value: [city.id: proxy.frame(in: .global)]
-                                    )
-                                }
-                            )
-                            .offset(y: reorderController.rowOffset(for: index, rowStride: cardHeight + cardSpacing))
-                    }
-                }
-                .padding(.horizontal, horizontalPadding)
-                .padding(.top, topSafeAreaInset)
-                .padding(.bottom, bottomContentInset)
-                .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.86), value: reorderController.proposedIndex)
-                .animation(.interactiveSpring(response: 0.28, dampingFraction: 0.86), value: cities)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .scrollIndicators(.hidden)
-            .background(ScrollViewIntrospector { scrollView in
-                let holder = scrollViewHolder
-                DispatchQueue.main.async { [weak holder] in
-                    guard let holder else { return }
-                    let didCapture = holder.setIfChanged(scrollView)
-                    if ENABLE_SCROLL_PROBE, didCapture {
-                        print("[SCROLLPROBE] found scroll view class=\(type(of: scrollView))")
-                        print(
-                            "[SCROLLPROBE] injected UIScrollView captured: \(ObjectIdentifier(scrollView)) " +
-                            "viewportHeight=\(Int(scrollView.bounds.height.rounded())) " +
-                            "frame=\(scrollView.frame) contentSize=\(scrollView.contentSize) " +
-                            "offset=\(scrollView.contentOffset)"
-                        )
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-                            print(
-                                "[SCROLLPROBE] injected UIScrollView post-layout: \(ObjectIdentifier(scrollView)) " +
-                                "viewportHeight=\(Int(scrollView.bounds.height.rounded())) " +
-                                "frame=\(scrollView.frame) contentSize=\(scrollView.contentSize) " +
-                                "offset=\(scrollView.contentOffset)"
-                            )
-                        }
-                    }
-                    reorderController.attachScrollView(scrollView)
-                }
-            })
-
-            if let draggedCity = draggedCity,
-               let initialFrame = reorderController.dragInitialFrame {
-                let contentOffset = scrollViewHolder.scrollView?.contentOffset ?? .zero
-                CityCardView(
-                    city: draggedCity,
-                    selectedInstant: selectedInstant,
-                    referenceTimeZone: currentCity.timeZone,
-                    isCurrent: (reorderController.proposedIndex ?? reorderController.sourceIndex ?? 0) == 0,
-                    cardBackgroundColor: SheetStyle.appCardBackground(for: theme)
-                )
-                .frame(width: initialFrame.width, height: initialFrame.height)
-                .scaleEffect(1.03)
-                .shadow(color: .black.opacity(0.20), radius: 18, y: 12)
-                .position(
-                    x: initialFrame.midX - contentOffset.x,
-                    y: (initialFrame.midY + reorderController.dragTranslationY) - contentOffset.y
-                )
-                .zIndex(10_000)
-                .allowsHitTesting(reorderController.isReordering)
-            }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .onPreferenceChange(CityRowFramePreferenceKey.self) { frames in
-            guard !reorderController.isReordering else { return }
-            guard let scrollView = scrollViewHolder.scrollView else { return }
-            let globalHash = rowFramesHash(frames)
-            DispatchQueue.main.async {
-                if globalHash != self.lastGlobalRowFramesHash {
-                    self.lastGlobalRowFramesHash = globalHash
-                    self.lastGlobalRowFrames = frames
-                }
-                let recalcConverted = convertGlobalFramesToContentSpace(self.lastGlobalRowFrames, scrollView: scrollView)
-                scheduleRowFramesCommit(recalcConverted)
-
-                if ENABLE_SCROLL_PROBE {
-                    let metrics = reorderController.scrollMetrics()
-                    let contentHeight = metrics?.contentHeight
-                        ?? (max(0, (recalcConverted.values.map(\.maxY).max() ?? 0) - (recalcConverted.values.map(\.minY).min() ?? 0))
-                            + topSafeAreaInset + bottomContentInset)
-                    let roundedContentHeight = Int(contentHeight.rounded())
-                    if roundedContentHeight != self.lastContentProbeHeight {
-                        self.lastContentProbeHeight = roundedContentHeight
-                        print(
-                            "[SCROLLPROBE] contentHeight=\(roundedContentHeight) " +
-                            "viewportHeight=\(Int((metrics?.viewportHeight ?? scrollViewport.height).rounded()))"
-                        )
-                    }
+        if let frame = stackFrame {
+            GlassEffectContainer(spacing: 12) {
+                VStack(spacing: 12) {
+                    settings
+                    add
                 }
             }
-        }
-        .onReceive(scrollViewHolder.$scrollView) { scrollView in
-            guard let scrollView else { return }
-            DispatchQueue.main.async {
-                guard !self.reorderController.isReordering else { return }
-                let converted = convertGlobalFramesToContentSpace(self.lastGlobalRowFrames, scrollView: scrollView)
-                scheduleRowFramesCommit(converted)
-            }
-        }
-        .onChange(of: listGeo.size) { _, newSize in
-            scrollViewport = CGRect(origin: .zero, size: newSize)
-            if ENABLE_SCROLL_PROBE {
-                let roundedViewportHeight = Int(newSize.height.rounded())
-                if roundedViewportHeight != lastViewportProbeHeight {
-                    lastViewportProbeHeight = roundedViewportHeight
-                    print("[SCROLLPROBE] viewportHeight=\(roundedViewportHeight)")
-                }
-            }
-        }
-        .onReceive(autoScrollTimer) { _ in
-            guard reorderController.isReordering else { return }
-            if reorderController.stepAutoScroll(viewport: scrollViewport) {
-                reorderController.refreshProposedIndex(cityOrder: cities, rowFrames: effectiveRowFramesForReorder)
-            }
-        }
-        .onChange(of: reorderController.isReordering) { _, isReordering in
-            DispatchQueue.main.async {
-                reorderController.setScrollDisabled(isReordering)
-            }
-            if !isReordering {
-                activeRowFramesSnapshot = nil
-                beginContentOffsetY = 0
-                if let scrollView = scrollViewHolder.scrollView {
-                    let converted = convertGlobalFramesToContentSpace(lastGlobalRowFrames, scrollView: scrollView)
-                    DispatchQueue.main.async {
-                        scheduleRowFramesCommit(converted)
-                    }
-                }
-            }
-            cityListDebugLog("scrollDisabled=\(isReordering)")
-            if ENABLE_SCROLL_PROBE {
-                if let metrics = reorderController.scrollMetrics() {
-                    print("[SCROLL] native isScrollEnabled = \(metrics.isScrollEnabled)")
-                }
-                print("[SCROLL] scrollDisabled = \(isReordering)")
-                print("[PROBE] Overlay allowsHitTesting = \(isReordering)")
-            }
-        }
-        .onAppear {
-            reorderStartHaptics.prepare()
-            reorderDropHaptics.prepare()
-            scrollViewport = CGRect(origin: .zero, size: listGeo.size)
-            if ENABLE_SCROLL_PROBE {
-                print("[PROBE] CityList appeared")
-                if let metrics = reorderController.scrollMetrics() {
-                    print(
-                        "[SCROLLPROBE] initial offset=\(Int(metrics.offsetY.rounded())) " +
-                        "contentHeight=\(Int(metrics.contentHeight.rounded())) " +
-                        "viewportHeight=\(Int(metrics.viewportHeight.rounded()))"
-                    )
-                }
-            }
-        }
-        .onDisappear {
-            reorderController.cancel(reason: "view-disappear")
-        }
-        // === SCROLL PROBE DEBUG ===
-        .overlay {
-            if ENABLE_SCROLL_PROBE {
-                HitTestProbeView(
-                    tag: "CityListRoot",
-                    isReordering: reorderController.isReordering,
-                    overlayHitTesting: reorderController.isReordering && draggedCity != nil
-                )
-            }
-        }
+            .position(x: frame.midX, y: frame.midY)
+            .frame(width: geometry.size.width, height: geometry.size.height)
+        } else {
+            horizontal
         }
     }
-
-    @ViewBuilder
-    private func rowView(for city: City, at index: Int) -> some View {
-        let isDraggedRow = reorderController.draggedCityID == city.id
-        let longPressEnabled = !DISABLE_REORDER && (!reorderController.isReordering || isDraggedRow)
-
-        CityCardView(
-            city: city,
-            selectedInstant: selectedInstant,
-            referenceTimeZone: currentCity.timeZone,
-            isCurrent: index == 0,
-            cardBackgroundColor: SheetStyle.appCardBackground(for: theme)
-        )
-        // Keep layout stable while this row is represented by the top-level dragged overlay.
-        .opacity(isDraggedRow ? 0 : 1)
-        .contentShape(Rectangle())
-        .modifier(RowLongPressDriverModifier(
-            enabled: longPressEnabled,
-            scrollView: scrollViewHolder.scrollView,
-            onBegan: { touchYContent, contentOffsetY in
-                cityListDebugLog("REORDER longPress complete sourceIndex=\(index) city=\(city.id)")
-                beginReorderIfPossible(
-                    for: city,
-                    at: index,
-                    touchYContent: touchYContent,
-                    contentOffsetY: contentOffsetY
-                )
-            },
-            onChanged: { translationY in
-                guard reorderController.isReordering, reorderController.draggedCityID == city.id else { return }
-                reorderController.updateDrag(
-                    translationY: translationY,
-                    cityOrder: cities,
-                    rowFrames: effectiveRowFramesForReorder
-                )
-            },
-            onEnded: {
-                guard reorderController.isReordering, reorderController.draggedCityID == city.id else { return }
-                #if DEBUG
-                if ENABLE_SCROLL_PROBE {
-                    let source = reorderController.sourceIndex ?? -1
-                    let destination = reorderController.proposedIndex ?? source
-                    let finalOffsetY = scrollViewHolder.scrollView?.contentOffset.y ?? beginContentOffsetY
-                    let overlayCenterYContent = (reorderController.dragInitialFrame?.midY ?? 0) + reorderController.dragTranslationY
-                    print(
-                        "[REORDER_END] source=\(source) dest=\(destination) finalOffsetY=\(finalOffsetY) " +
-                        "overlayCenterYContent=\(overlayCenterYContent)"
-                    )
-                }
-                #endif
-                let moved = reorderController.commitReorder(cities: &cities)
-                if moved {
-                    reorderDropHaptics.notificationOccurred(.success)
-                    reorderDropHaptics.prepare()
-                }
-            },
-            onCancelled: {
-                guard reorderController.isReordering, reorderController.draggedCityID == city.id else { return }
-                reorderController.cancel(reason: "long-press-cancelled")
-            }
-        ))
-    }
-
-    private var draggedCity: City? {
-        guard let draggedCityID = reorderController.draggedCityID else { return nil }
-        return cities.first(where: { $0.id == draggedCityID })
-    }
-
-    private func beginReorderIfPossible(
-        for city: City,
-        at index: Int,
-        touchYContent: CGFloat,
-        contentOffsetY: CGFloat
-    ) {
-        guard scrollViewHolder.scrollView != nil, hasContentSpaceRowFrames else {
-            #if DEBUG
-            if ENABLE_SCROLL_PROBE, !didLogReorderDataNotReady {
-                print("[REORDER] abort begin: scrollView or content-space rowFrames not ready")
-                didLogReorderDataNotReady = true
-            }
-            #endif
-            return
-        }
-
-        let snapshotFrames = rowFrames.isEmpty ? pendingRowFrames : rowFrames
-        guard let sourceFrame = snapshotFrames[city.id] else {
-            #if DEBUG
-            if ENABLE_SCROLL_PROBE, !didLogReorderDataNotReady {
-                print("[REORDER] abort begin: missing row frame for \(city.id) (rowFrames not ready)")
-                didLogReorderDataNotReady = true
-            }
-            #endif
-            return
-        }
-
-        #if DEBUG
-        if ENABLE_SCROLL_PROBE {
-            let rowMinY = sourceFrame.minY
-            let rowMaxY = sourceFrame.maxY
-            let touchInRow = touchYContent >= rowMinY && touchYContent <= rowMaxY
-            let offsetY = scrollViewHolder.scrollView?.contentOffset.y ?? contentOffsetY
-            print(
-                "[REORDER_BEGIN] idx=\(index) offsetY=\(offsetY) " +
-                "touchYContent=\(touchYContent) row=[\(rowMinY),\(rowMaxY)] " +
-                "touchInRow=\(touchInRow) framesCount=\(snapshotFrames.count)"
-            )
-            print(
-                "[REORDER_BEGIN] sourceFrameContent=\(sourceFrame) " +
-                "overlayInitialCenterContent=\(sourceFrame.midY)"
-            )
-        }
-        #endif
-
-        let started = reorderController.beginIfNeeded(
-            cityID: city.id,
-            sourceIndex: index,
-            startFrame: sourceFrame
-        )
-        guard started else { return }
-        activeRowFramesSnapshot = snapshotFrames
-        beginContentOffsetY = contentOffsetY
-        reorderStartHaptics.impactOccurred()
-        reorderStartHaptics.prepare()
-    }
-
-    private func convertGlobalFramesToContentSpace(
-        _ globalFrames: [City.ID: CGRect],
-        scrollView: UIScrollView
-    ) -> [City.ID: CGRect] {
-        return globalFrames.reduce(into: [City.ID: CGRect]()) { result, entry in
-            let id = entry.key
-            let global = entry.value
-            result[id] = rectInContentSpace(globalRect: global, scrollView: scrollView)
-        }
-    }
-
-    private func rectInContentSpace(globalRect: CGRect, scrollView: UIScrollView) -> CGRect {
-        let boundsRect = scrollView.convert(globalRect, from: nil)
-        return boundsRect.offsetBy(dx: scrollView.contentOffset.x, dy: scrollView.contentOffset.y)
-    }
-
-    private func applyConvertedRowFramesIfNeeded(_ converted: [City.ID: CGRect]) {
-        let newHash = rowFramesHash(converted)
-        guard newHash != lastRowFramesHash else { return }
-        rowFrames = converted
-        lastRowFramesHash = newHash
-        hasContentSpaceRowFrames = !converted.isEmpty
-        if hasContentSpaceRowFrames {
-            didLogReorderDataNotReady = false
-        }
-        reorderController.refreshProposedIndex(cityOrder: cities, rowFrames: converted)
-    }
-
-    private func scheduleRowFramesCommit(_ newFrames: [City.ID: CGRect]) {
-        pendingRowFrames = newFrames
-        guard !rowFramesCommitScheduled else { return }
-        rowFramesCommitScheduled = true
-
-        DispatchQueue.main.async {
-            self.rowFramesCommitScheduled = false
-            guard !self.reorderController.isReordering else { return }
-            self.applyConvertedRowFramesIfNeeded(self.pendingRowFrames)
-        }
-    }
-
-    private func rowFramesHash(_ frames: [City.ID: CGRect]) -> Int {
-        var hasher = Hasher()
-        hasher.combine(frames.count)
-        for (id, rect) in frames.sorted(by: { String(describing: $0.key) < String(describing: $1.key) }) {
-            hasher.combine(id)
-            hasher.combine(Int(rect.minX.rounded()))
-            hasher.combine(Int(rect.minY.rounded()))
-            hasher.combine(Int(rect.width.rounded()))
-            hasher.combine(Int(rect.height.rounded()))
-        }
-        return hasher.finalize()
-    }
-
-    private var effectiveRowFramesForReorder: [City.ID: CGRect] {
-        if reorderController.isReordering, let snapshot = activeRowFramesSnapshot {
-            return snapshot
-        }
-        return rowFrames
-    }
-}
-
-@MainActor
-final class ReorderController: NSObject, ObservableObject {
-    @Published private(set) var isReordering = false
-    @Published private(set) var draggedCityID: City.ID?
-    @Published private(set) var sourceIndex: Int?
-    @Published private(set) var proposedIndex: Int?
-    @Published private(set) var dragInitialFrame: CGRect?
-    @Published private(set) var dragTranslationY: CGFloat = 0
-
-    private weak var scrollView: UIScrollView?
-    private var scrollBoundsObservation: NSKeyValueObservation?
-    private var scrollContentSizeObservation: NSKeyValueObservation?
-    private var scrollContentOffsetObservation: NSKeyValueObservation?
-    private var isScrollDisabled = false
-    private var lastAutoScrollLogTimestamp: CFTimeInterval = 0
-    private var lastDragLogTimestamp: CFTimeInterval = 0
-    private var lastScrollProbeOffsetLogTimestamp: CFTimeInterval = 0
-
-    var attachedScrollView: UIScrollView? {
-        scrollView
-    }
-
-    func attachScrollView(_ scrollView: UIScrollView) {
-        let isNewScrollView = self.scrollView !== scrollView
-        if isNewScrollView {
-            stopObservingScrollView()
-            self.scrollView = scrollView
-            startObservingScrollView(scrollView)
-            cityListDebugLog(
-                "scrollView attached offset=\(scrollView.contentOffset.y) " +
-                "content=\(scrollView.contentSize.height) bounds=\(scrollView.bounds.height)"
-            )
-        }
-        applyScrollEnabledState()
-        if ENABLE_SCROLL_PROBE {
-            DispatchQueue.main.async { [weak self] in
-                guard let self, let metrics = self.scrollMetrics() else { return }
-                print(
-                    "[SCROLLPROBE] attached offset=\(Int(metrics.offsetY.rounded())) " +
-                    "contentHeight=\(Int(metrics.contentHeight.rounded())) " +
-                    "viewportHeight=\(Int(metrics.viewportHeight.rounded())) " +
-                    "isScrollEnabled=\(metrics.isScrollEnabled)"
-                )
-            }
-        }
-    }
-
-    func setScrollDisabled(_ disabled: Bool) {
-        isScrollDisabled = disabled
-        applyScrollEnabledState()
-    }
-
-    func scrollMetrics() -> (
-        offsetY: CGFloat,
-        contentHeight: CGFloat,
-        viewportHeight: CGFloat,
-        isScrollEnabled: Bool
-    )? {
-        guard let scrollView else { return nil }
-        return (
-            offsetY: scrollView.contentOffset.y,
-            contentHeight: scrollView.contentSize.height,
-            viewportHeight: scrollView.bounds.height,
-            isScrollEnabled: scrollView.isScrollEnabled
-        )
-    }
-
-    func currentContentOffset() -> CGPoint {
-        scrollView?.contentOffset ?? .zero
-    }
-
-    func beginIfNeeded(cityID: City.ID, sourceIndex: Int, startFrame: CGRect?) -> Bool {
-        guard draggedCityID == nil else { return false }
-        guard let startFrame else {
-            cityListDebugLog("drag begin blocked: missing row frame for \(cityID)")
-            return false
-        }
-        cityListDebugLog("isReordering -> true")
-        isReordering = true
-        setScrollDisabled(true)
-        draggedCityID = cityID
-        self.sourceIndex = sourceIndex
-        proposedIndex = sourceIndex
-        dragInitialFrame = startFrame
-        dragTranslationY = 0
-        cityListDebugLog("REORDER drag begin city=\(cityID) sourceIndex=\(sourceIndex)")
-        return true
-    }
-
-    func updateDrag(
-        translationY: CGFloat,
-        cityOrder: [City],
-        rowFrames: [City.ID: CGRect]
-    ) {
-        guard sourceIndex != nil, draggedCityID != nil else { return }
-        dragTranslationY = translationY
-        let now = CACurrentMediaTime()
-        if now - lastDragLogTimestamp > 0.20 {
-            cityListDebugLog("REORDER drag changed y=\(Int(translationY.rounded()))")
-            lastDragLogTimestamp = now
-        }
-        refreshProposedIndex(cityOrder: cityOrder, rowFrames: rowFrames)
-    }
-
-    func refreshProposedIndex(cityOrder: [City], rowFrames: [City.ID: CGRect]) {
-        guard let overlayCenterY = overlayCenterY else { return }
-        let newIndex = calculatedDestinationIndex(
-            cityOrder: cityOrder,
-            rowFrames: rowFrames,
-            overlayCenterY: overlayCenterY
-        )
-        guard newIndex != proposedIndex else { return }
-        proposedIndex = newIndex
-        cityListDebugLog("proposedIndex=\(newIndex)")
-    }
-
-    func stepAutoScroll(viewport: CGRect) -> Bool {
-        guard
-            isReordering,
-            let scrollView,
-            viewport.height > 0,
-            let overlayCenterY
-        else {
-            return false
-        }
-
-        let edgeThreshold: CGFloat = 88
-        let maxStepPerTick: CGFloat = 14
-        var deltaY: CGFloat = 0
-        let overlayCenterYInBounds = overlayCenterY - scrollView.contentOffset.y
-
-        if overlayCenterYInBounds < (viewport.minY + edgeThreshold) {
-            let ratio = ((viewport.minY + edgeThreshold) - overlayCenterYInBounds) / edgeThreshold
-            deltaY = -maxStepPerTick * min(max(ratio, 0), 1)
-        } else if overlayCenterYInBounds > (viewport.maxY - edgeThreshold) {
-            let ratio = (overlayCenterYInBounds - (viewport.maxY - edgeThreshold)) / edgeThreshold
-            deltaY = maxStepPerTick * min(max(ratio, 0), 1)
-        }
-
-        guard abs(deltaY) > 0.01 else { return false }
-
-        let minOffsetY = -scrollView.adjustedContentInset.top
-        let maxOffsetY = max(
-            minOffsetY,
-            scrollView.contentSize.height - scrollView.bounds.height + scrollView.adjustedContentInset.bottom
-        )
-        let currentOffsetY = scrollView.contentOffset.y
-        let nextOffsetY = min(max(currentOffsetY + deltaY, minOffsetY), maxOffsetY)
-        guard abs(nextOffsetY - currentOffsetY) > 0.01 else { return false }
-
-        scrollView.setContentOffset(
-            CGPoint(x: scrollView.contentOffset.x, y: nextOffsetY),
-            animated: false
-        )
-
-        let now = CACurrentMediaTime()
-        if now - lastAutoScrollLogTimestamp > 0.25 {
-            cityListDebugLog(
-                "autoscroll offset=\(nextOffsetY) " +
-                "content=\(scrollView.contentSize.height) bounds=\(scrollView.bounds.height)"
-            )
-            lastAutoScrollLogTimestamp = now
-        }
-
-        return true
-    }
-
-    func rowOffset(for rowIndex: Int, rowStride: CGFloat) -> CGFloat {
-        guard
-            let sourceIndex,
-            let proposedIndex,
-            draggedCityID != nil
-        else {
-            return 0
-        }
-
-        if rowIndex == sourceIndex {
-            return 0
-        }
-
-        if proposedIndex > sourceIndex, (sourceIndex + 1...proposedIndex).contains(rowIndex) {
-            return -rowStride
-        }
-
-        if proposedIndex < sourceIndex, (proposedIndex..<sourceIndex).contains(rowIndex) {
-            return rowStride
-        }
-
-        return 0
-    }
-
-    func commitReorder(cities: inout [City]) -> Bool {
-        guard
-            let sourceIndex,
-            let proposedIndex,
-            cities.indices.contains(sourceIndex)
-        else {
-            DispatchQueue.main.async { [weak self] in self?.reset() }
-            return false
-        }
-
-        let destination = max(0, min(cities.count - 1, proposedIndex))
-        guard sourceIndex != destination else {
-            DispatchQueue.main.async { [weak self] in self?.reset() }
-            return false
-        }
-
-        let movedCity = cities.remove(at: sourceIndex)
-        cities.insert(movedCity, at: destination)
-        cityListDebugLog("REORDER drag end source=\(sourceIndex) destination=\(destination)")
-        DispatchQueue.main.async { [weak self] in self?.reset() }
-        return true
-    }
-
-    func cancel(reason: String) {
-        guard isReordering else { return }
-        cityListDebugLog("REORDER cancel reason=\(reason)")
-        reset()
-    }
-
-    private var overlayCenterY: CGFloat? {
-        guard let dragInitialFrame else { return nil }
-        return dragInitialFrame.midY + dragTranslationY
-    }
-
-    private func calculatedDestinationIndex(
-        cityOrder: [City],
-        rowFrames: [City.ID: CGRect],
-        overlayCenterY: CGFloat
-    ) -> Int {
-        guard let draggedCityID, !cityOrder.isEmpty else { return 0 }
-
-        let orderedOtherRows = cityOrder
-            .enumerated()
-            .filter { $0.element.id != draggedCityID }
-            .sorted { lhs, rhs in
-                let leftMinY = rowFrames[lhs.element.id]?.minY ?? .greatestFiniteMagnitude
-                let rightMinY = rowFrames[rhs.element.id]?.minY ?? .greatestFiniteMagnitude
-                return leftMinY < rightMinY
-            }
-
-        var insertionIndex = 0
-        for (_, city) in orderedOtherRows {
-            guard let frame = rowFrames[city.id] else { continue }
-            if overlayCenterY > frame.midY {
-                insertionIndex += 1
-            }
-        }
-
-        return max(0, min(cityOrder.count - 1, insertionIndex))
-    }
-
-    private func reset() {
-        if isReordering {
-            cityListDebugLog("isReordering -> false")
-        }
-        isReordering = false
-        setScrollDisabled(false)
-        draggedCityID = nil
-        sourceIndex = nil
-        proposedIndex = nil
-        dragInitialFrame = nil
-        dragTranslationY = 0
-    }
-
-    private func startObservingScrollView(_ scrollView: UIScrollView) {
-        guard ENABLE_SCROLL_PROBE else { return }
-
-        scrollBoundsObservation = scrollView.observe(\.bounds, options: [.new]) { _, change in
-            guard let bounds = change.newValue else { return }
-            print("[SCROLLPROBE] boundsHeight=\(Int(bounds.height.rounded()))")
-        }
-
-        scrollContentSizeObservation = scrollView.observe(\.contentSize, options: [.new]) { _, change in
-            guard let contentSize = change.newValue else { return }
-            print("[SCROLLPROBE] contentHeight=\(Int(contentSize.height.rounded()))")
-        }
-
-        scrollContentOffsetObservation = scrollView.observe(\.contentOffset, options: [.new]) { [weak self] _, change in
-            guard let self, let offset = change.newValue else { return }
-            let now = CACurrentMediaTime()
-            Task { @MainActor in
-                guard now - self.lastScrollProbeOffsetLogTimestamp > 0.20 else { return }
-                self.lastScrollProbeOffsetLogTimestamp = now
-                print("[SCROLLPROBE] contentOffsetY=\(Int(offset.y.rounded()))")
-            }
-        }
-    }
-
-    private func stopObservingScrollView() {
-        scrollBoundsObservation = nil
-        scrollContentSizeObservation = nil
-        scrollContentOffsetObservation = nil
-    }
-
-    private func applyScrollEnabledState() {
-        guard let scrollView else { return }
-        let shouldEnableScroll = !isScrollDisabled
-        if scrollView.isScrollEnabled != shouldEnableScroll {
-            scrollView.isScrollEnabled = shouldEnableScroll
-            if ENABLE_SCROLL_PROBE {
-                print("[SCROLLPROBE] native isScrollEnabled=\(scrollView.isScrollEnabled)")
-            }
-        }
-    }
-}
-
-private struct CityRowFramePreferenceKey: PreferenceKey {
-    static let defaultValue: [City.ID: CGRect] = [:]
-
-    static func reduce(value: inout [City.ID: CGRect], nextValue: () -> [City.ID: CGRect]) {
-        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
-    }
-}
-
-private struct ScrollViewIntrospector: UIViewRepresentable {
-    let onResolve: (UIScrollView) -> Void
-
-    func makeUIView(context: Context) -> ScrollIntrospectionView {
-        ScrollIntrospectionView(onResolve: onResolve)
-    }
-
-    func updateUIView(_ uiView: ScrollIntrospectionView, context: Context) {
-        uiView.onResolve = onResolve
-        uiView.resolveIfNeeded()
-    }
-}
-
-private final class ScrollIntrospectionView: UIView {
-    var onResolve: (UIScrollView) -> Void
-    private var didResolveScrollView = false
-    private var didRetryResolution = false
-
-    init(onResolve: @escaping (UIScrollView) -> Void) {
-        self.onResolve = onResolve
-        super.init(frame: .zero)
-        isUserInteractionEnabled = false
-        backgroundColor = .clear
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func didMoveToWindow() {
-        super.didMoveToWindow()
-        resolveIfNeeded()
-    }
-
-    override func didMoveToSuperview() {
-        super.didMoveToSuperview()
-        resolveIfNeeded()
-    }
-
-    func resolveIfNeeded() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            guard !self.didResolveScrollView else { return }
-
-            if let scrollView = self.resolveScrollView() {
-                self.didResolveScrollView = true
-                self.onResolve(scrollView)
-                return
-            }
-
-            guard !self.didRetryResolution else { return }
-            self.didRetryResolution = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.resolveIfNeeded()
-            }
-        }
-    }
-
-    private func resolveScrollView() -> UIScrollView? {
-        if let ancestorScrollView = firstAncestorScrollView(startingFrom: self) {
-            return ancestorScrollView
-        }
-
-        guard let window else { return nil }
-
-        let probePoint = convert(CGPoint(x: bounds.midX, y: bounds.midY), to: window)
-        if let hitView = window.hitTest(probePoint, with: nil),
-           let hitScrollView = firstAncestorScrollView(startingFrom: hitView) {
-            return hitScrollView
-        }
-
-        if let containingScrollView = firstDescendantScrollView(in: window, containing: probePoint) {
-            return containingScrollView
-        }
-
-        return nil
-    }
-
-    private func firstAncestorScrollView(startingFrom view: UIView?) -> UIScrollView? {
-        var current: UIView? = view
-        while let node = current {
-            if let scrollView = node as? UIScrollView {
-                return scrollView
-            }
-            current = node.superview
-        }
-        return nil
-    }
-
-    private func firstDescendantScrollView(in root: UIView, containing windowPoint: CGPoint) -> UIScrollView? {
-        if let scrollView = root as? UIScrollView {
-            let rectInWindow = scrollView.convert(scrollView.bounds, to: nil)
-            if rectInWindow.contains(windowPoint) {
-                return scrollView
-            }
-        }
-
-        for child in root.subviews {
-            if let found = firstDescendantScrollView(in: child, containing: windowPoint) {
-                return found
-            }
-        }
-
-        return nil
-    }
-}
-
-private final class ScrollViewHolder: ObservableObject {
-    @Published private(set) var scrollView: UIScrollView? = nil
-
-    @discardableResult
-    func setIfChanged(_ sv: UIScrollView?) -> Bool {
-        guard let sv else { return false }
-        guard scrollView !== sv else { return false }
-        scrollView = sv
-        return true
-    }
-}
-
-private struct RowLongPressDriverModifier: ViewModifier {
-    let enabled: Bool
-    let scrollView: UIScrollView?
-    let onBegan: (_ touchYContent: CGFloat, _ contentOffsetY: CGFloat) -> Void
-    let onChanged: (CGFloat) -> Void
-    let onEnded: () -> Void
-    let onCancelled: () -> Void
-
-    func body(content: Content) -> some View {
-        content.overlay {
-            RowLongPressDriverView(
-                enabled: enabled,
-                scrollView: scrollView,
-                minimumPressDuration: 0.30,
-                allowableMovement: 12,
-                onBegan: onBegan,
-                onChanged: onChanged,
-                onEnded: onEnded,
-                onCancelled: onCancelled
-            )
-            .allowsHitTesting(enabled)
-        }
-    }
-}
-
-private struct RowLongPressDriverView: UIViewRepresentable {
-    let enabled: Bool
-    let scrollView: UIScrollView?
-    let minimumPressDuration: TimeInterval
-    let allowableMovement: CGFloat
-    let onBegan: (_ touchYContent: CGFloat, _ contentOffsetY: CGFloat) -> Void
-    let onChanged: (CGFloat) -> Void
-    let onEnded: () -> Void
-    let onCancelled: () -> Void
-
-    func makeUIView(context: Context) -> RowLongPressDriverUIView {
-        RowLongPressDriverUIView()
-    }
-
-    func updateUIView(_ uiView: RowLongPressDriverUIView, context: Context) {
-        uiView.update(
-            enabled: enabled,
-            scrollView: scrollView,
-            minimumPressDuration: minimumPressDuration,
-            allowableMovement: allowableMovement,
-            onBegan: onBegan,
-            onChanged: onChanged,
-            onEnded: onEnded,
-            onCancelled: onCancelled
-        )
-    }
-}
-
-private final class RowLongPressDriverUIView: UIView, UIGestureRecognizerDelegate {
-    private lazy var longPressRecognizer: UILongPressGestureRecognizer = {
-        let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleLongPress(_:)))
-        recognizer.delegate = self
-        recognizer.cancelsTouchesInView = false
-        recognizer.delaysTouchesBegan = false
-        return recognizer
-    }()
-
-    private var initialTouchYContent: CGFloat?
-    private weak var scrollView: UIScrollView?
-    private var onBegan: ((_ touchYContent: CGFloat, _ contentOffsetY: CGFloat) -> Void)?
-    private var onChanged: ((CGFloat) -> Void)?
-    private var onEnded: (() -> Void)?
-    private var onCancelled: (() -> Void)?
-    private var hasInjectedScrollView = false
-    private static var didLogMissingInjectedScrollView = false
-
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        backgroundColor = .clear
-        addGestureRecognizer(longPressRecognizer)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func update(
-        enabled: Bool,
-        scrollView: UIScrollView?,
-        minimumPressDuration: TimeInterval,
-        allowableMovement: CGFloat,
-        onBegan: @escaping (_ touchYContent: CGFloat, _ contentOffsetY: CGFloat) -> Void,
-        onChanged: @escaping (CGFloat) -> Void,
-        onEnded: @escaping () -> Void,
-        onCancelled: @escaping () -> Void
-    ) {
-        if let scrollView {
-            self.scrollView = scrollView
-            hasInjectedScrollView = true
-            Self.didLogMissingInjectedScrollView = false
-        } else if self.scrollView == nil {
-            hasInjectedScrollView = false
-        }
-        self.onBegan = onBegan
-        self.onChanged = onChanged
-        self.onEnded = onEnded
-        self.onCancelled = onCancelled
-        longPressRecognizer.minimumPressDuration = minimumPressDuration
-        longPressRecognizer.allowableMovement = allowableMovement
-        longPressRecognizer.isEnabled = enabled
-    }
-
-    @objc
-    private func handleLongPress(_ recognizer: UILongPressGestureRecognizer) {
-        switch recognizer.state {
-        case .began:
-            guard let metrics = currentGestureMetrics(for: recognizer) else { return }
-            initialTouchYContent = metrics.touchPointContent.y
-            onBegan?(metrics.touchPointContent.y, metrics.contentOffsetY)
-            onChanged?(0)
-        case .changed:
-            guard let initialTouchYContent else { return }
-            guard let metrics = currentGestureMetrics(for: recognizer) else {
-                self.initialTouchYContent = nil
-                onCancelled?()
-                return
-            }
-            onChanged?(metrics.touchPointContent.y - initialTouchYContent)
-        case .ended:
-            initialTouchYContent = nil
-            onEnded?()
-        case .cancelled, .failed:
-            initialTouchYContent = nil
-            onCancelled?()
-        default:
-            break
-        }
-    }
-
-    private func currentGestureMetrics(for recognizer: UILongPressGestureRecognizer) -> (
-        touchPointContent: CGPoint,
-        contentOffsetY: CGFloat
-    )? {
-        guard let scrollView else {
-            #if DEBUG
-            if ENABLE_SCROLL_PROBE, !Self.didLogMissingInjectedScrollView {
-                print("[REORDER] abort begin: injected UIScrollView missing (holder=\(hasInjectedScrollView))")
-                Self.didLogMissingInjectedScrollView = true
-            }
-            #endif
-            return nil
-        }
-        Self.didLogMissingInjectedScrollView = false
-
-        let touchPointContent = pointInContentSpace(recognizer: recognizer, scrollView: scrollView)
-        return (
-            touchPointContent: touchPointContent,
-            contentOffsetY: scrollView.contentOffset.y
-        )
-    }
-
-    private func pointInContentSpace(
-        recognizer: UILongPressGestureRecognizer,
-        scrollView: UIScrollView
-    ) -> CGPoint {
-        let boundsPoint = recognizer.location(in: scrollView)
-        let contentOffset = scrollView.contentOffset
-        return CGPoint(
-            x: boundsPoint.x + contentOffset.x,
-            y: boundsPoint.y + contentOffset.y
-        )
-    }
-
-    private func isScrollPanRecognizer(_ recognizer: UIGestureRecognizer) -> Bool {
-        guard recognizer is UIPanGestureRecognizer else { return false }
-        var currentView: UIView? = recognizer.view
-        while let view = currentView {
-            if view is UIScrollView {
-                return true
-            }
-            currentView = view.superview
-        }
-        return false
-    }
-
-    func gestureRecognizer(
-        _ gestureRecognizer: UIGestureRecognizer,
-        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
-    ) -> Bool {
-        guard gestureRecognizer === longPressRecognizer else { return false }
-        guard isScrollPanRecognizer(otherGestureRecognizer) else { return false }
-        return longPressRecognizer.state == .possible
-    }
-}
-
-// DEBUG-only pass-through probe that logs who wins hit-testing without consuming touches.
-private struct HitTestProbeView: UIViewRepresentable {
-    let tag: String
-    let isReordering: Bool
-    let overlayHitTesting: Bool
-
-    func makeUIView(context: Context) -> HitTestProbeUIView {
-        let view = HitTestProbeUIView()
-        view.backgroundColor = .clear
-        return view
-    }
-
-    func updateUIView(_ uiView: HitTestProbeUIView, context: Context) {
-        uiView.probeTag = tag
-        uiView.isReordering = isReordering
-        uiView.overlayHitTesting = overlayHitTesting
-    }
-}
-
-private final class HitTestProbeUIView: UIView {
-    var probeTag = "probe"
-    var isReordering = false
-    var overlayHitTesting = false
-    private static var isResolvingHitTest = false
-    private var lastTouchLogTimestamp: CFTimeInterval = 0
-
-    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
-        false
-    }
-
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard ENABLE_SCROLL_PROBE else { return nil }
-        guard let touch = event?.allTouches?.first, touch.phase == .began else { return nil }
-
-        let now = CACurrentMediaTime()
-        guard now - lastTouchLogTimestamp > 0.15 else { return nil }
-        lastTouchLogTimestamp = now
-
-        guard let window else { return nil }
-        let windowPoint = convert(point, to: window)
-
-        var winnerDescription = "nil"
-        if !Self.isResolvingHitTest {
-            Self.isResolvingHitTest = true
-            let winner = window.hitTest(windowPoint, with: event)
-            if let winner {
-                winnerDescription = String(describing: type(of: winner))
-            }
-            Self.isResolvingHitTest = false
-        }
-
-        print(
-            "[HITPROBE] tag=\(probeTag) x=\(Int(windowPoint.x.rounded())) y=\(Int(windowPoint.y.rounded())) " +
-            "winner=\(winnerDescription) isReordering=\(isReordering) overlayHitTesting=\(overlayHitTesting)"
-        )
-        return nil
-    }
-}
-
-#if DEBUG
-private let ENABLE_SCROLL_PROBE = true
-private let ENABLE_CITYLIST_DEBUG = false
-private let DISABLE_REORDER = false
-#else
-private let ENABLE_SCROLL_PROBE = false
-private let ENABLE_CITYLIST_DEBUG = false
-private let DISABLE_REORDER = false
-#endif
-
-private func cityListDebugLog(_ message: String) {
-    #if DEBUG
-    guard ENABLE_CITYLIST_DEBUG || ENABLE_SCROLL_PROBE else { return }
-    print("[CITYLIST] \(message)")
-    #endif
 }
