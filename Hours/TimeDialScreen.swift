@@ -3,6 +3,10 @@ import UIKit
 import Combine
 
 struct TimeDialScreen: View {
+    private enum CityPresentation {
+        case list, map
+    }
+
     private enum PersistenceAlertStatus: Equatable {
         case loading, loaded, fileAbsent, loadFailed, unavailable, saveFailed
     }
@@ -37,6 +41,8 @@ struct TimeDialScreen: View {
     @State private var isPersistenceAlertPresented = false
     @State private var hasAcknowledgedPersistenceFailure = false
     @State private var sheetsAwaitingDismissal: Set<PresentedSheet> = []
+    @State private var cityPresentation: CityPresentation = .list
+    @State private var mapHorizontalPosition = WorldMapView.initialHorizontalPosition
     @AppStorage(OnboardingStorageKey.hasCompleted) private var hasCompletedOnboarding = false
     @AppStorage(CityViewPreference.storageKey) private var cityViewPreferenceRawValue = CityViewPreference.basic.rawValue
     @StateObject private var emptyStateQuoteProvider = EmptyStateQuoteProvider()
@@ -83,7 +89,7 @@ struct TimeDialScreen: View {
                     SheetStyle.appScreenBackground(for: theme)
                         .ignoresSafeArea()
 
-                    Group {
+                    CityPresentationContent(presentation: $cityPresentation, isCitiesEmpty: isCitiesEmpty) {
                         if isCitiesEmpty {
                             ZStack(alignment: .top) {
                                 MainEmptyStateQuoteView(quote: emptyStateQuoteProvider.currentQuote)
@@ -124,9 +130,23 @@ struct TimeDialScreen: View {
                             )
                             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         }
+                    } map: {
+                        WorldMapObservedContent(
+                            viewModel: viewModel,
+                            cityStore: cityStore,
+                            viewportSize: geo.size,
+                            horizontalPosition: $mapHorizontalPosition
+                        )
+                        .overlay(alignment: .top) {
+                            Image("HoursLogo")
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: logoWidth, height: logoHeight)
+                                .padding(.top, sharedLogoTopInset)
+                                .allowsHitTesting(false)
+                        }
                     }
                     .id(isCitiesEmpty ? "empty" : "list")
-                    .zIndex(isCitiesEmpty ? 1 : 0)
 
                     ProgressiveBottomBlurOverlay(height: 180)
                         .allowsHitTesting(false)
@@ -147,6 +167,11 @@ struct TimeDialScreen: View {
                             }
                         )
 
+                }
+                .overlay(alignment: .bottomLeading) {
+                    CityPresentationButton(presentation: $cityPresentation, height: topButtonBarHeight)
+                        .padding(.leading, container.safeAreaInsets.leading + 24)
+                        .padding(.bottom, 24)
                 }
                 .overlay(alignment: .top) {
                     let horizontalControls = topButtonBar()
@@ -315,6 +340,52 @@ struct TimeDialScreen: View {
                 settingsButton()
             }
             .padding(.horizontal, 20)
+        }
+    }
+
+    // Read presentation bindings below the geometry boundary, just as live time
+    // is observed there. Neither child owns the model or the presentation state.
+    private struct CityPresentationContent<ListContent: View, MapContent: View>: View {
+        @Binding var presentation: CityPresentation
+        let isCitiesEmpty: Bool
+        @ViewBuilder let list: () -> ListContent
+        @ViewBuilder let map: () -> MapContent
+
+        var body: some View {
+            Group {
+                if presentation == .map {
+                    map()
+                } else {
+                    list()
+                }
+            }
+            .zIndex(isCitiesEmpty && presentation == .list ? 1 : 0)
+        }
+    }
+
+    private struct CityPresentationButton: View {
+        @Binding var presentation: CityPresentation
+        let height: CGFloat
+        @Environment(\.appTheme) private var theme
+
+        var body: some View {
+            Button {
+                let previousPresentation = presentation
+                presentation = presentation == .list ? .map : .list
+                guard presentation != previousPresentation else { return }
+                let generator = UIImpactFeedbackGenerator(style: .medium)
+                generator.impactOccurred()
+            } label: {
+                Text(presentation == .list ? "Map" : "List")
+                    .font(.system(size: 16, weight: .medium))
+                    .tracking(-0.64)
+                    .foregroundStyle(theme.textPrimary.opacity(0.90))
+                    .frame(width: 72, height: height)
+                    .modifier(GlassSurfaceModifier(shape: Capsule()))
+                    .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("cityPresentationSwitcher")
         }
     }
 

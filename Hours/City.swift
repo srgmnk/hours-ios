@@ -203,6 +203,9 @@ struct City: Identifiable, Equatable, Codable {
 
     let canonicalCity: CanonicalCity
     var customDisplayName: String?
+    // A validated WGS84 pair. Coordinates do not participate in canonical identity.
+    let latitude: Double?
+    let longitude: Double?
 
     var id: String { canonicalCity.id }
     var name: String { canonicalCity.name }
@@ -217,15 +220,53 @@ struct City: Identifiable, Equatable, Codable {
         canonicalCity.timeZone
     }
 
-    init(canonicalCity: CanonicalCity, customDisplayName: String? = nil) {
+    init(
+        canonicalCity: CanonicalCity,
+        customDisplayName: String? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil
+    ) {
         self.canonicalCity = canonicalCity
         self.customDisplayName = customDisplayName
+        if let latitude, let longitude,
+           latitude.isFinite, longitude.isFinite,
+           (-90...90).contains(latitude), (-180...180).contains(longitude) {
+            self.latitude = latitude
+            self.longitude = longitude
+        } else {
+            self.latitude = nil
+            self.longitude = nil
+        }
     }
 
-    init(name: String, timeZoneID: String, customDisplayName: String? = nil, canonicalID: String? = nil) {
+    init(
+        name: String,
+        timeZoneID: String,
+        customDisplayName: String? = nil,
+        canonicalID: String? = nil,
+        latitude: Double? = nil,
+        longitude: Double? = nil
+    ) {
         self.init(
             canonicalCity: CanonicalCity(id: canonicalID, name: name, timeZoneID: timeZoneID),
-            customDisplayName: customDisplayName
+            customDisplayName: customDisplayName,
+            latitude: latitude,
+            longitude: longitude
+        )
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case canonicalCity, customDisplayName, latitude, longitude
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            canonicalCity: try container.decode(CanonicalCity.self, forKey: .canonicalCity),
+            customDisplayName: try container.decodeIfPresent(String.self, forKey: .customDisplayName),
+            // Malformed optional geography must not make an otherwise valid city unreadable.
+            latitude: try? container.decodeIfPresent(Double.self, forKey: .latitude),
+            longitude: try? container.decodeIfPresent(Double.self, forKey: .longitude)
         )
     }
 

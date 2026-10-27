@@ -24,7 +24,7 @@ cp Hours/Resources/cities.json "$work/cities.json"
 xcrun swiftc -swift-version 5 -default-isolation MainActor -parse-as-library \
   -module-cache-path "$work/ModuleCache" \
   Hours/City.swift Hours/CityTimeFormatter.swift Hours/AppTimeFormatPreference.swift \
-  Hours/CitySearchItem.swift Hours/CitySearchDeduplicator.swift \
+  Hours/CitySearchItem.swift Hours/CitySearchDeduplicator.swift Hours/LocalCityCoordinates.swift \
   "$work/Provider.swift" "$work/Rows.swift" \
   Tests/CitySearch/MapKitFakes.swift Tests/CitySearch/RegressionTests.swift \
   -o "$work/tests"

@@ -178,7 +178,9 @@ final class CityStore: ObservableObject {
                     name: city.name,
                     timeZoneID: city.timeZoneID
                 ),
-                customDisplayName: city.customDisplayName
+                customDisplayName: city.customDisplayName,
+                latitude: city.latitude,
+                longitude: city.longitude
             )
             migratedCities.append(migratedCity)
         }

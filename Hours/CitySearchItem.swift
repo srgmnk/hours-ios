@@ -114,7 +114,14 @@ struct CitySearchItem: Identifiable, Codable, Hashable {
     }
 
     var asCity: City {
-        City(canonicalCity: CanonicalCity(id: canonicalIdentity, name: city, timeZoneID: timeZoneIdentifier))
+        // Retain resolved MapKit evidence even when existing deduplication gives it
+        // a catalog identity. Local-only selections use the exact catalog ID.
+        let localCoordinates = LocalCityCoordinates.byCatalogID[id]
+        return City(
+            canonicalCity: CanonicalCity(id: canonicalIdentity, name: city, timeZoneID: timeZoneIdentifier),
+            latitude: geographicalEvidence?.coordinates?.latitude ?? localCoordinates?.latitude,
+            longitude: geographicalEvidence?.coordinates?.longitude ?? localCoordinates?.longitude
+        )
     }
 
     func utcOffsetText(referenceDate: Date = Date()) -> String {
