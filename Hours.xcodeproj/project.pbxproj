@@ -57,7 +57,7 @@
 		EAE58B642F62BE6C005DCC44 /* Exceptions for "Hours" folder in "Hours" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				Info.plist,
+				SupportingFiles/Info.plist,
 			);
 			target = EA036D492F51B1C100C06B8A /* Hours */;
 		};
@@ -392,13 +392,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = "app-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				CODE_SIGN_ENTITLEMENTS = Hours/Hours.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Hours/SupportingFiles/Hours.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KD5TK98R4N;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Hours/Info.plist;
+				INFOPLIST_FILE = Hours/SupportingFiles/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Hours;
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Hours creates calendar events for the selected snapshot time.";
 				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "Hours creates calendar events for the selected snapshot time.";
@@ -436,13 +436,13 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = "app-icon";
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
-				CODE_SIGN_ENTITLEMENTS = Hours/Hours.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Hours/SupportingFiles/Hours.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KD5TK98R4N;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_FILE = Hours/Info.plist;
+				INFOPLIST_FILE = Hours/SupportingFiles/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = Hours;
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "Hours creates calendar events for the selected snapshot time.";
 				INFOPLIST_KEY_NSCalendarsWriteOnlyAccessUsageDescription = "Hours creates calendar events for the selected snapshot time.";

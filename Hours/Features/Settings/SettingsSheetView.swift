@@ -16,6 +16,7 @@ private enum SettingsLinkAction {
 }
 
 struct SettingsSheetView: View {
+    var usesCompactHeader = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.appTheme) private var theme
@@ -132,22 +133,26 @@ struct SettingsSheetView: View {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 0) {
 
-                        VStack(spacing: -8) {
-                            Text("Catch")
-                            Text("the moment")
-                            Text("in hours")
-                        }
-                        .font(.system(size: 32, weight: .medium))
-                        .foregroundStyle(Color(red: 78.0 / 255.0, green: 80.0 / 255.0, blue: 89.0 / 255.0))
-                        .tracking(-0.96)
-                        .multilineTextAlignment(.center)
-                        .padding(.top, -16)
+                        if usesCompactHeader {
+                            compactHeader
+                        } else {
+                            VStack(spacing: -8) {
+                                Text("Catch")
+                                Text("the moment")
+                                Text("in hours")
+                            }
+                            .font(.system(size: 32, weight: .medium))
+                            .foregroundStyle(Color(red: 78.0 / 255.0, green: 80.0 / 255.0, blue: 89.0 / 255.0))
+                            .tracking(-0.96)
+                            .multilineTextAlignment(.center)
+                            .padding(.top, -16)
 
-                        heroSection
-                            .padding(.top, -32)
+                            heroSection
+                                .padding(.top, -32)
+                        }
 
                         settingsBlock
-                            .padding(.top, 12)
+                            .padding(.top, usesCompactHeader ? 0 : 12)
                             .padding(.horizontal, 8)
 
                         linksBlock
@@ -160,9 +165,10 @@ struct SettingsSheetView: View {
                             .padding(.horizontal, 40)
                             .frame(maxWidth: .infinity)
                     }
-                    .padding(.top, 32)
+                    .padding(.top, usesCompactHeader ? 0 : 32)
                     .frame(maxWidth: .infinity, alignment: .top)
                 }
+                .scrollEdgeEffectStyle(.soft, for: .top)
             }
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
@@ -172,6 +178,9 @@ struct SettingsSheetView: View {
                 }
             }
         }
+        // The root theme already resolves System. Passing its scheme explicitly
+        // also clears a previous manual override on an already-presented sheet.
+        .preferredColorScheme(theme.variant == .dark ? .dark : .light)
         .scrollBounceBehavior(.basedOnSize)
         .sheet(isPresented: $isMailComposerPresented) {
             MailComposeView(
@@ -188,6 +197,29 @@ struct SettingsSheetView: View {
         }
     }
     
+
+    // Figma 718:10469: the title overlays the original artwork's transparent
+    // upper area. Let the artwork establish the header height without clipping.
+    private var compactHeader: some View {
+        heroSection
+            .frame(width: 532, height: 457.998)
+            .frame(maxWidth: .infinity)
+            .frame(height: 458, alignment: .top)
+            .overlay(alignment: .top) {
+                VStack(spacing: 0) {
+                    Text("Catch the moment")
+                        .frame(height: 32)
+                    Text("in hours")
+                        .frame(height: 32)
+                }
+                .font(.system(size: 32, weight: .medium))
+                .foregroundStyle(Color(red: 78.0 / 255.0, green: 80.0 / 255.0, blue: 89.0 / 255.0))
+                .tracking(-0.96)
+                .multilineTextAlignment(.center)
+                .frame(width: 377)
+                .offset(x: -1, y: 5)
+            }
+    }
 
     private var heroSection: some View {
         SettingsParallaxIllustrationView(variant: resolvedParallaxVariant)
@@ -210,176 +242,86 @@ struct SettingsSheetView: View {
     private var settingsBlock: some View {
         VStack(spacing: 1) {
             cityViewRow
-                .background(groupedRowBackground(for: 0, total: 3))
-
-            timeFormatRow
-                .background(groupedRowBackground(for: 1, total: 3))
-
+                .background(preferencesBackground)
             appearanceRow
-                .background(groupedRowBackground(for: 2, total: 3))
+                .background(preferencesBackground)
+            timeFormatRow
+                .background(preferencesBackground)
         }
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    private var preferencesBackground: Color {
+        SheetStyle.groupedRowBackground(for: theme).opacity(0.8)
     }
 
     private var cityViewRow: some View {
-        HStack(spacing: 16) {
-            Text("City view")
-                .font(.system(size: 16, weight: .regular))
-                .tracking(-0.48)
-                .foregroundStyle(theme.textPrimary)
-
-            Spacer(minLength: 0)
-
-            Menu {
-                ForEach(CityViewPreference.allCases, id: \.self) { preference in
-                    Button {
-                        cityViewPreferenceRawValue = preference.rawValue
-                        triggerNotificationHaptic(.success)
-                    } label: {
-                        if preference == selectedCityViewPreference {
-                            Label(preference.displayTitle, systemImage: "checkmark")
-                        } else {
-                            Text(preference.displayTitle)
-                        }
-                    }
+        SettingsPreferenceRow {
+            ForEach(CityViewPreference.allCases, id: \.self) { preference in
+                SettingsPreferenceOption(
+                    title: preference.displayTitle,
+                    isSelected: selectedCityViewPreference == preference,
+                    preview: preference == .basic ? .basic : .compact
+                ) {
+                    cityViewPreferenceRawValue = preference.rawValue
+                    triggerNotificationHaptic(.success)
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(selectedCityViewPreference.displayTitle)
-                        .font(.system(size: 16, weight: .medium))
-                        .tracking(-0.48)
-                        .foregroundStyle(theme.textPrimary)
-
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.tagNeutralText)
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 12)
-                .frame(height: 48)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(theme.surfaceControl)
-                )
+                .accessibilityIdentifier("settings.cityView.\(preference.rawValue)")
             }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    triggerImpactHaptic(.medium)
-                }
-            )
+
+            // Intentionally has no CityViewPreference value or selection action.
+            SettingsPreferenceOption(title: "Cards", isSelected: false, preview: .cards) {}
+                .disabled(true)
+                .accessibilityHint("Not available yet")
+                .accessibilityIdentifier("settings.cityView.cards")
         }
-        .padding(.leading, 20)
-        .padding(.trailing, 8)
-        .frame(height: 64)
-    }
-
-    private var timeFormatRow: some View {
-        HStack(spacing: 16) {
-            Text("Time format")
-                .font(.system(size: 16, weight: .regular))
-                .tracking(-0.48)
-                .foregroundStyle(theme.textPrimary)
-
-            Spacer(minLength: 0)
-
-            Menu {
-                ForEach(AppTimeFormatPreference.allCases, id: \.self) { preference in
-                    Button {
-                        timeFormatPreferenceRawValue = preference.rawValue
-                        triggerNotificationHaptic(.success)
-                    } label: {
-                        if preference == selectedTimeFormatPreference {
-                            Label(preference.displayTitle, systemImage: "checkmark")
-                        } else {
-                            Text(preference.displayTitle)
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(selectedTimeFormatPreference.displayTitle)
-                        .font(.system(size: 16, weight: .medium))
-                        .tracking(-0.48)
-                        .foregroundStyle(theme.textPrimary)
-
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.tagNeutralText)
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 12)
-                .frame(height: 48)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(theme.surfaceControl)
-                )
-            }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    triggerImpactHaptic(.medium)
-                }
-            )
-        }
-        .padding(.leading, 20)
-        .padding(.trailing, 8)
-        .frame(height: 64)
+        .padding(.horizontal, 9)
+        .padding(.vertical, 20)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("City view")
     }
 
     private var appearanceRow: some View {
-        HStack(spacing: 16) {
-            Text("Appearance")
-                .font(.system(size: 16, weight: .regular))
-                .tracking(-0.48)
-                .foregroundStyle(theme.textPrimary)
-
-            Spacer(minLength: 0)
-
-            Menu {
-                ForEach(AppAppearancePreference.allCases, id: \.self) { preference in
-                    Button {
-                        appearancePreferenceRawValue = preference.rawValue
-                        triggerNotificationHaptic(.success)
-                    } label: {
-                        if preference == selectedAppearancePreference {
-                            Label(preference.displayTitle, systemImage: "checkmark")
-                        } else {
-                            Text(preference.displayTitle)
-                        }
-                    }
+        SettingsPreferenceRow {
+            ForEach(AppAppearancePreference.allCases, id: \.self) { preference in
+                SettingsPreferenceOption(
+                    title: preference.displayTitle,
+                    isSelected: selectedAppearancePreference == preference
+                ) {
+                    appearancePreferenceRawValue = preference.rawValue
+                    triggerNotificationHaptic(.success)
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(selectedAppearancePreference.displayTitle)
-                        .font(.system(size: 16, weight: .medium))
-                        .tracking(-0.48)
-                        .foregroundStyle(theme.textPrimary)
-
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(theme.tagNeutralText)
-                }
-                .padding(.leading, 16)
-                .padding(.trailing, 12)
-                .frame(height: 48)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(theme.surfaceControl)
-                )
+                .accessibilityIdentifier("settings.appearance.\(preference.rawValue)")
             }
-            .buttonStyle(.plain)
-            .contentShape(Rectangle())
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    triggerImpactHaptic(.medium)
-                }
-            )
         }
-        .padding(.leading, 20)
-        .padding(.trailing, 8)
-        .frame(height: 64)
+        .padding(8)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Appearance")
+    }
+
+    private var displayedTimeFormatPreference: AppTimeFormatPreference {
+        guard selectedTimeFormatPreference == .system else { return selectedTimeFormatPreference }
+        // Reflect the existing formatter's system resolution without changing the saved value.
+        let time = CityTimeFormatter.formatTimeComponents(Date(), in: .current)
+        return time.meridiem == nil ? .twentyFourHour : .twelveHour
+    }
+
+    private var timeFormatRow: some View {
+        SettingsPreferenceRow {
+            ForEach([AppTimeFormatPreference.twentyFourHour, .twelveHour], id: \.self) { preference in
+                SettingsPreferenceOption(
+                    title: preference == .twentyFourHour ? "24-hour" : "12-hour",
+                    isSelected: displayedTimeFormatPreference == preference
+                ) {
+                    timeFormatPreferenceRawValue = preference.rawValue
+                    triggerNotificationHaptic(.success)
+                }
+                .accessibilityIdentifier("settings.timeFormat.\(preference.rawValue)")
+            }
+        }
+        .padding(8)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Time format")
     }
 
     private var linksBlock: some View {
@@ -442,11 +384,6 @@ struct SettingsSheetView: View {
         return trimmed.isEmpty ? nil : trimmed
     }
 
-    private func triggerImpactHaptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
-        let generator = UIImpactFeedbackGenerator(style: style)
-        generator.impactOccurred()
-    }
-
     private func triggerNotificationHaptic(_ type: UINotificationFeedbackGenerator.FeedbackType) {
         let generator = UINotificationFeedbackGenerator()
         generator.notificationOccurred(type)
@@ -493,6 +430,110 @@ struct SettingsSheetView: View {
             Rectangle()
                 .fill(SheetStyle.groupedRowBackground(for: theme))
         }
+    }
+}
+
+private struct SettingsPreferenceRow<Content: View>: View {
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        // Keep enlarged labels readable without shrinking text or changing the sheet width.
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .top, spacing: 4))
+        layout { content }
+    }
+}
+
+// Custom Figma controls: native segmented pickers have different geometry and surfaces.
+private struct SettingsPreferenceOption: View {
+    enum Preview {
+        case basic, compact, cards
+    }
+
+    @Environment(\.appTheme) private var theme
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @ScaledMetric(relativeTo: .body) private var fontSize = 16.0
+    let title: String
+    let isSelected: Bool
+    var preview: Preview? = nil
+    let action: () -> Void
+
+    // Figma 723:15345 uses a brighter orange than the app-wide accent.
+    private let selectionAccent = Color(red: 1, green: 64.0 / 255.0, blue: 0)
+    private var neutral: Color { theme.variant == .dark ? .white : .black }
+    private var labelColor: Color {
+        isSelected ? (theme.variant == .dark ? theme.textPrimary : .black) : neutral.opacity(0.3)
+    }
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                if let preview {
+                    layoutPreview(preview)
+                        .frame(maxWidth: dynamicTypeSize.isAccessibilitySize ? 85.333 : nil)
+                        .padding(.horizontal, 16)
+                        .accessibilityHidden(true)
+                }
+
+                Text(title)
+                    .font(.system(size: fontSize, weight: isSelected ? .medium : .regular))
+                    .tracking(-0.03 * fontSize)
+                    .foregroundStyle(labelColor)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(minHeight: 20)
+                    .padding(.horizontal, preview == nil ? 16 : 0)
+
+                if preview != nil {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .symbolRenderingMode(.palette)
+                        .font(.system(size: 20, weight: .regular))
+                        .foregroundStyle(isSelected ? .white : neutral.opacity(0.2), selectionAccent)
+                        .frame(height: 20)
+                        .accessibilityHidden(true)
+                }
+            }
+            .padding(.vertical, preview == nil ? 10 : 0)
+            .frame(maxWidth: .infinity, minHeight: preview == nil ? 48 : nil)
+            .background {
+                if preview == nil && isSelected {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(theme.surfaceControl)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(SettingsPreferenceButtonStyle())
+        .accessibilityLabel(title)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    private func layoutPreview(_ preview: Preview) -> some View {
+        VStack(spacing: 2) {
+            ForEach(0..<(preview == .compact ? 3 : 2), id: \.self) { _ in
+                HStack(spacing: 2) {
+                    ForEach(0..<(preview == .cards ? 2 : 1), id: \.self) { _ in
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(isSelected ? selectionAccent.opacity(0.2) : neutral.opacity(0.05))
+                    }
+                }
+            }
+        }
+        .padding(2)
+        .frame(height: 72)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(isSelected ? selectionAccent.opacity(0.1) : neutral.opacity(0.03))
+        )
+    }
+}
+
+// Figma already specifies the muted Cards colors; avoid native disabled dimming on top.
+private struct SettingsPreferenceButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
     }
 }
 

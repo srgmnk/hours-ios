@@ -28,8 +28,6 @@ struct TimeDialScreen: View {
     @StateObject private var currentLocationProvider = CurrentLocationCityProvider()
     @EnvironmentObject private var cityStore: CityStore
     @Environment(\.scenePhase) private var scenePhase
-    @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.appTheme) private var theme
     @State private var lastSnappedOffsetSteps = 0
     @State private var isDraggingSessionActive = false
     @State private var dialHeight: CGFloat = 260
@@ -43,6 +41,10 @@ struct TimeDialScreen: View {
     @State private var sheetsAwaitingDismissal: Set<PresentedSheet> = []
     @State private var cityPresentation: CityPresentation = .list
     @State private var mapHorizontalPosition = WorldMapView.initialHorizontalPosition
+    @State private var duoHinge = DuoHingeState()
+    @State private var usesCompactSettingsHeader = false
+    @State private var duoMapMounted = false
+    @State private var mapHasBeenPresented = false
     @AppStorage(OnboardingStorageKey.hasCompleted) private var hasCompletedOnboarding = false
     @AppStorage(CityViewPreference.storageKey) private var cityViewPreferenceRawValue = CityViewPreference.basic.rawValue
     @StateObject private var emptyStateQuoteProvider = EmptyStateQuoteProvider()
@@ -74,6 +76,82 @@ struct TimeDialScreen: View {
     }
 
     var body: some View {
+        Group {
+            if #available(iOS 27.1, *), duoHinge.isConfirmed {
+                duoPresentation
+            } else {
+                conventionalPresentation
+            }
+        }
+        .background {
+            DuoHingeObserver { status in duoHinge.receive(status) }
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+        .sheet(isPresented: $isAddCitySheetPresented, onDismiss: {
+            if let pendingItem = pendingAddedCityItem {
+                pendingAddedCityItem = nil
+                DispatchQueue.main.async {
+                    appendCityIfNeeded(pendingItem)
+                }
+            }
+            currentLocationProvider.requestCurrentCity()
+            persistenceSheetDidDismiss(.addCity)
+        }) {
+            AddCitySheetView(
+                existingCanonicalIDs: Set(cityStore.cities.map(\.id))
+            ) { selectedItem in
+                pendingAddedCityItem = selectedItem
+            }
+        }
+        .sheet(isPresented: $isSettingsSheetPresented, onDismiss: {
+            persistenceSheetDidDismiss(.settings)
+        }) { [usesCompactSettingsHeader] in
+            SettingsSheetView(usesCompactHeader: usesCompactSettingsHeader)
+        }
+        .sheet(item: $cityBeingRenamed, onDismiss: {
+            persistenceSheetDidDismiss(.rename)
+        }) { city in
+            ChangeCityNameSheetView(city: city) { customName in
+                applyCustomDisplayName(customName, toCityID: city.id)
+            }
+        }
+        .sheet(item: $cityDetailsPresentation, onDismiss: {
+            persistenceSheetDidDismiss(.cityDetails)
+        }) { presentation in
+            CityDetailsView(
+                city: presentation.city,
+                primaryCity: presentation.primaryCity,
+                date: presentation.date,
+                relativeOffsetMinutes: presentation.relativeOffsetMinutes,
+                cityViewPreference: presentation.cityViewPreference
+            )
+                .presentationDetents([.large])
+                .presentationDragIndicator(.hidden)
+                .presentationCornerRadius(38)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .active {
+                currentLocationProvider.requestCurrentCity()
+                updatePersistenceAlert()
+            }
+        }
+        .onChange(of: persistenceAlertStatus, initial: true) { _, _ in
+            updatePersistenceAlert()
+        }
+        .onChange(of: hasCompletedOnboarding) { _, _ in
+            updatePersistenceAlert()
+        }
+        .alert("Unable to Save Changes", isPresented: $isPersistenceAlertPresented) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("City changes cannot be saved right now. Changes made in the app may be lost when you close it.")
+        }
+    }
+
+    // Keep this production branch's layout and modifier order unchanged.
+    private var conventionalPresentation: some View {
         GeometryReader { container in
         GeometryReader { geo in
             let topSafeInset = resolvedTopSafeAreaInset(from: geo)
@@ -86,7 +164,7 @@ struct TimeDialScreen: View {
 
             TimeDialObservedContent(viewModel: viewModel) { selectedInstant, rotationDegrees, dialSteps, resetSignal, mode, deltaText in
                 ZStack(alignment: .bottom) {
-                    SheetStyle.appScreenBackground(for: theme)
+                    AppScreenBackground()
                         .ignoresSafeArea()
 
                     CityPresentationContent(presentation: $cityPresentation, isCitiesEmpty: isCitiesEmpty) {
@@ -119,12 +197,10 @@ struct TimeDialScreen: View {
                                 cities: $cityStore.cities,
                                 selectedInstant: selectedInstant,
                                 userCurrentLocationItem: currentLocationProvider.currentCityItem,
-                                cityViewPreference: selectedCityViewPreference,
                                 // Keep scroll content layout independent from pinned button offset.
                                 topSafeAreaInset: topButtonBarTopPadding + ((topButtonBarHeight - logoHeight) / 2),
                                 // Desired visual stop gap from physical screen bottom.
                                 bottomContentInset: cityListDesiredBottomGap,
-                                cardBackgroundColor: SheetStyle.appCardBackground(for: theme),
                                 onRenameRequested: presentRenameSheet(for:),
                                 onCitySelected: presentCityDetails(for:)
                             )
@@ -135,8 +211,10 @@ struct TimeDialScreen: View {
                             viewModel: viewModel,
                             cityStore: cityStore,
                             viewportSize: geo.size,
-                            horizontalPosition: $mapHorizontalPosition
+                            horizontalPosition: $mapHorizontalPosition,
+                            onCitySelected: presentMapCityDetails(for:)
                         )
+                        .onAppear { mapHasBeenPresented = true }
                         .overlay(alignment: .top) {
                             Image("HoursLogo")
                                 .resizable()
@@ -169,7 +247,11 @@ struct TimeDialScreen: View {
 
                 }
                 .overlay(alignment: .bottomLeading) {
-                    CityPresentationButton(presentation: $cityPresentation, height: topButtonBarHeight)
+                    CityPresentationSwitcher(
+                        presentation: $cityPresentation,
+                        selectedInstant: selectedInstant,
+                        cityStore: cityStore
+                    )
                         .padding(.leading, container.safeAreaInsets.leading + 24)
                         .padding(.bottom, 24)
                 }
@@ -228,68 +310,163 @@ struct TimeDialScreen: View {
                 }
             }
         }
-        .id("\(cityStore.cities.isEmpty ? "empty" : "list")-\(colorScheme == .dark ? "dark" : "light")")
+        // Keep the mounted map and dial alive across appearance changes.
+        .id(cityStore.cities.isEmpty ? "empty" : "list")
         .ignoresSafeArea()
         }
-        .sheet(isPresented: $isAddCitySheetPresented, onDismiss: {
-            if let pendingItem = pendingAddedCityItem {
-                pendingAddedCityItem = nil
-                DispatchQueue.main.async {
-                    appendCityIfNeeded(pendingItem)
+    }
+
+    @available(iOS 27.1, *)
+    private var duoPresentation: some View {
+        DuoLayoutContainer(hinge: duoHinge) { layout, geometry in
+            TimeDialObservedContent(viewModel: viewModel) { instant, rotation, steps, reset, mode, delta in
+                let mapVisible = layout.isInner || cityPresentation == .map
+                let listVisible = layout.isInner || cityPresentation == .list
+                ZStack(alignment: .topLeading) {
+                    AppScreenBackground()
+                    // Retain the native map and its renderer after the first use.
+                    if mapVisible || duoMapMounted {
+                        WorldMapObservedContent(
+                            viewModel: viewModel, cityStore: cityStore,
+                            viewportSize: layout.mapViewport.size, horizontalPosition: $mapHorizontalPosition,
+                            geometryProfile: layout.isInner ? .duoInner : .duoOuter,
+                            isPresentationVisible: mapVisible,
+                            visualViewport: layout.mapVisualViewport,
+                            usesDuoDrawingContainer: true,
+                            onCitySelected: presentMapCityDetails(for:)
+                        )
+                        .position(x: layout.mapDrawingFrame.midX, y: layout.mapDrawingFrame.midY)
+                        .opacity(mapVisible ? 1 : 0)
+                        .allowsHitTesting(mapVisible)
+                        .accessibilityHidden(!mapVisible)
+                        .onAppear {
+                            if !mapHasBeenPresented && layout.isInner {
+                                mapHorizontalPosition = WorldMapGeometryProfile.duoInitialCenter
+                            }
+                            mapHasBeenPresented = true
+                            duoMapMounted = true
+                        }
+                    }
+                    // This controller stays mounted, including while empty or hidden.
+                    CityListReorderUIKitView(
+                        cities: $cityStore.cities, selectedInstant: instant,
+                        userCurrentLocationItem: currentLocationProvider.currentCityItem,
+                        topSafeAreaInset: 25,
+                        bottomContentInset: layout.isInner ? layout.bottomInset : 130,
+                        onRenameRequested: presentRenameSheet(for:),
+                        onCitySelected: presentCityDetails(for:),
+                        duoViewport: layout.listViewport.size
+                    )
+                    .frame(width: layout.listViewport.width, height: layout.listViewport.height)
+                    .position(x: layout.listViewport.midX, y: layout.listViewport.midY)
+                    .opacity(listVisible && !cityStore.cities.isEmpty ? 1 : 0)
+                    .allowsHitTesting(listVisible && !cityStore.cities.isEmpty)
+                    .accessibilityHidden(!listVisible || cityStore.cities.isEmpty)
+
+                    if listVisible && cityStore.cities.isEmpty {
+                        MainEmptyStateQuoteView(quote: emptyStateQuoteProvider.currentQuote)
+                            .frame(width: layout.listViewport.width, height: layout.listViewport.height)
+                            .position(x: layout.listViewport.midX, y: layout.listViewport.midY)
+                            .allowsHitTesting(false)
+                            .onAppear {
+                                withAnimation(.easeInOut(duration: 0.25)) {
+                                    emptyStateQuoteProvider.randomizeQuote()
+                                }
+                            }
+                            .overlay {
+                                ShakeDetectorView { changeQuote() }
+                                    .allowsHitTesting(false)
+                            }
+                    }
+                    if (listVisible && cityStore.cities.isEmpty) || (!layout.isInner && mapVisible) {
+                        Image("HoursLogo").resizable().scaledToFit()
+                            .frame(width: logoWidth, height: logoHeight)
+                            .position(x: layout.listViewport.midX + 3, y: layout.listViewport.minY + 32.5)
+                            .allowsHitTesting(false)
+                    }
+                    ProgressiveBottomBlurOverlay(height: layout.blurHeight)
+                        .frame(width: layout.blurFrame.width, height: layout.blurHeight)
+                        .position(x: layout.blurFrame.midX, y: layout.blurFrame.midY)
+                        .allowsHitTesting(false)
+                    duoWheel(layout: layout, geometry: geometry, rotation: rotation, steps: steps, reset: reset)
+                    DeltaPillView(mode: mode, deltaText: delta, onTapReset: resetToNow, isDuoPresentation: true)
+                        .position(x: layout.map.midX, y: layout.map.maxY - (layout.isInner ? 36 : 47))
+                    if !layout.isInner {
+                        CityPresentationSwitcher(
+                            presentation: $cityPresentation,
+                            selectedInstant: instant,
+                            cityStore: cityStore
+                        )
+                            .position(x: layout.outerSwitcherFrame?.midX ?? layout.map.minX + 55,
+                                      y: layout.outerSwitcherFrame?.midY ?? layout.map.maxY - 48)
+                    }
+                    if let frame = layout.controls {
+                        GlassEffectContainer(spacing: 10) {
+                            VStack(spacing: 10) {
+                                settingsButton()
+                                addButton(iconOnly: true, symbol: "plus.circle.fill")
+                            }
+                        }
+                        .frame(width: frame.width, height: frame.height)
+                        .position(x: frame.midX, y: frame.midY)
+                    }
+                }
+                .frame(width: geometry.size.width, height: geometry.size.height)
+                .clipped()
+                .onAppear {
+                    prepareDialHaptics()
+                    resetNotificationHaptics.prepare()
+                    lastSnappedOffsetSteps = viewModel.dialSteps
+                    currentLocationProvider.requestCurrentCity()
+                }
+                .onChange(of: steps) { _, step in
+                    guard step != lastSnappedOffsetSteps else { return }
+                    fireHapticForSnappedStep(step)
+                    lastSnappedOffsetSteps = step
                 }
             }
-            currentLocationProvider.requestCurrentCity()
-            persistenceSheetDidDismiss(.addCity)
-        }) {
-            AddCitySheetView(
-                existingCanonicalIDs: Set(cityStore.cities.map(\.id))
-            ) { selectedItem in
-                pendingAddedCityItem = selectedItem
+            .onChange(of: layout.usesCompactSettingsHeader, initial: true) { _, value in
+                usesCompactSettingsHeader = value
             }
         }
-        .sheet(isPresented: $isSettingsSheetPresented, onDismiss: {
-            persistenceSheetDidDismiss(.settings)
-        }) {
-            SettingsSheetView()
-        }
-        .sheet(item: $cityBeingRenamed, onDismiss: {
-            persistenceSheetDidDismiss(.rename)
-        }) { city in
-            ChangeCityNameSheetView(city: city) { customName in
-                applyCustomDisplayName(customName, toCityID: city.id)
-            }
-        }
-        .sheet(item: $cityDetailsPresentation, onDismiss: {
-            persistenceSheetDidDismiss(.cityDetails)
-        }) { presentation in
-            CityDetailsView(
-                city: presentation.city,
-                primaryCity: presentation.primaryCity,
-                date: presentation.date,
-                relativeOffsetMinutes: presentation.relativeOffsetMinutes,
-                cityViewPreference: presentation.cityViewPreference
-            )
-                .presentationDetents([.large])
-                .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(38)
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            if newPhase == .active {
-                currentLocationProvider.requestCurrentCity()
-                updatePersistenceAlert()
-            }
-        }
-        .onChange(of: persistenceAlertStatus, initial: true) { _, _ in
-            updatePersistenceAlert()
-        }
-        .onChange(of: hasCompletedOnboarding) { _, _ in
-            updatePersistenceAlert()
-        }
-        .alert("Unable to Save Changes", isPresented: $isPersistenceAlertPresented) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text("City changes cannot be saved right now. Changes made in the app may be lost when you close it.")
-        }
+    }
+
+    private func duoWheel(layout: DuoLayoutConfiguration, geometry: GeometryProxy,
+                          rotation: Double, steps: Int, reset: Int) -> some View {
+        let wheelBounds = CGRect(x: layout.wheelCenter.x - dialSize / 2,
+                                 y: layout.wheelCenter.y - dialSize / 2,
+                                 width: dialSize, height: dialSize)
+        // A drawing clip alone does not restrict SwiftUI hit testing. Keep the
+        // container itself inside the visible wheel bounds so the list and map
+        // receive gestures everywhere above the arc.
+        let intersection = layout.wheelClip.intersection(wheelBounds)
+        let clip = intersection.isNull ? CGRect.zero : intersection
+        return TimeDialView(
+            diameter: dialSize, rotationDegrees: rotation, stepIndex: steps,
+            resetSignal: reset, maxInteractiveGlobalY: geometry.frame(in: .global).minY + layout.map.maxY - 16,
+            onDragBegan: {
+                guard !isDraggingSessionActive else { return }
+                isDraggingSessionActive = true
+                viewModel.beginDialDrag()
+                prepareDialHaptics()
+            },
+            onDragChanged: { value in
+                guard isDraggingSessionActive else { return }
+                viewModel.updateDialRotation(value)
+            },
+            onDragEnded: { current, predicted in
+                guard isDraggingSessionActive else { return }
+                isDraggingSessionActive = false
+                viewModel.endDialDrag(currentRotation: current, predictedRotation: predicted)
+            },
+            onDragCancelled: cancelDialDrag,
+            layoutCancellationFrame: CGRect(x: layout.wheelCenter.x - 256, y: layout.wheelCenter.y - 256, width: clip.width, height: clip.height)
+        )
+        .position(x: layout.wheelCenter.x - clip.minX, y: layout.wheelCenter.y - clip.minY)
+        .frame(width: clip.width, height: clip.height)
+        .clipped()
+        .contentShape(Rectangle())
+        .position(x: clip.midX, y: clip.midY)
     }
 
     private var persistenceAlertStatus: PersistenceAlertStatus {
@@ -363,10 +540,26 @@ struct TimeDialScreen: View {
         }
     }
 
+    // Observe below the deferred dial builder so city changes refresh the clock
+    // without waiting for an unrelated dial-model publication.
+    private struct CityPresentationSwitcher: View {
+        @Binding var presentation: CityPresentation
+        let selectedInstant: Date
+        @ObservedObject var cityStore: CityStore
+
+        var body: some View {
+            CityPresentationButton(
+                presentation: $presentation,
+                selectedInstant: selectedInstant,
+                primaryTimeZone: cityStore.cities.first?.timeZone ?? .current
+            )
+        }
+    }
+
     private struct CityPresentationButton: View {
         @Binding var presentation: CityPresentation
-        let height: CGFloat
-        @Environment(\.appTheme) private var theme
+        let selectedInstant: Date
+        let primaryTimeZone: TimeZone
 
         var body: some View {
             Button {
@@ -376,20 +569,29 @@ struct TimeDialScreen: View {
                 let generator = UIImpactFeedbackGenerator(style: .medium)
                 generator.impactOccurred()
             } label: {
-                Text(presentation == .list ? "Map" : "List")
-                    .font(.system(size: 16, weight: .medium))
-                    .tracking(-0.64)
-                    .foregroundStyle(theme.textPrimary.opacity(0.90))
-                    .frame(width: 72, height: height)
-                    .modifier(GlassSurfaceModifier(shape: Capsule()))
-                    .contentShape(Capsule())
+                Group {
+                    if presentation == .list {
+                        Image("map-button")
+                            .renderingMode(.original)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 36, height: 36)
+                            .allowsHitTesting(false)
+                    } else {
+                        AnalogClockSwitcherIcon(instant: selectedInstant, timeZone: primaryTimeZone)
+                    }
+                }
+                .frame(width: 48, height: 48)
+                .modifier(GlassSurfaceModifier(shape: Circle()))
+                .contentShape(Circle())
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(presentation == .list ? "Show Map" : "Show List")
             .accessibilityIdentifier("cityPresentationSwitcher")
         }
     }
 
-    private func addButton(iconOnly: Bool) -> some View {
+    private func addButton(iconOnly: Bool, symbol: String = "plus.capsule.fill") -> some View {
         Button(action: {
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
@@ -397,7 +599,7 @@ struct TimeDialScreen: View {
             isAddCitySheetPresented = true
         }) {
             HStack(spacing: 4) {
-                Image(systemName: "plus.capsule.fill")
+                Image(systemName: symbol)
                     .font(.system(size: 16, weight: .medium))
                 if !iconOnly {
                     Text("Add")
@@ -405,7 +607,7 @@ struct TimeDialScreen: View {
                         .tracking(-0.64)
                 }
             }
-            .foregroundStyle(theme.textPrimary.opacity(0.90))
+            .modifier(TopBarForegroundStyle())
             .frame(width: iconOnly ? topButtonBarHeight : 87, height: topButtonBarHeight)
             .modifier(GlassSurfaceModifier(shape: Capsule()))
         }
@@ -422,7 +624,7 @@ struct TimeDialScreen: View {
         }) {
             Image(systemName: "line.3.horizontal.decrease")
                 .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(theme.textPrimary.opacity(0.90))
+                .modifier(TopBarForegroundStyle())
                 .frame(width: topButtonBarHeight, height: topButtonBarHeight)
                 .modifier(GlassSurfaceModifier(shape: Circle()))
         }
@@ -558,6 +760,13 @@ struct TimeDialScreen: View {
         cityStore.cities[index].customDisplayName = customName
     }
 
+    private func presentMapCityDetails(for cityID: City.ID) {
+        // Resolve at activation, including after a menu has been open. A removed
+        // city is a no-op; names, primary city and time all use current app state.
+        guard let city = cityStore.cities.first(where: { $0.id == cityID }) else { return }
+        presentCityDetails(for: city)
+    }
+
     private func presentCityDetails(for city: City) {
         sheetsAwaitingDismissal.insert(.cityDetails)
         cityDetailsPresentation = CityDetailsPresentation(
@@ -576,6 +785,16 @@ struct TimeDialScreen: View {
         withAnimation(.easeInOut(duration: 0.25)) {
             emptyStateQuoteProvider.randomizeQuote()
         }
+    }
+}
+
+// The screen's builders can outlive the TimeDialScreen value they captured.
+// Read appearance here so the existing buttons update without rebuilding them.
+private struct TopBarForegroundStyle: ViewModifier {
+    @Environment(\.appTheme) private var theme
+
+    func body(content: Content) -> some View {
+        content.foregroundStyle(theme.textPrimary.opacity(0.90))
     }
 }
 
@@ -650,15 +869,21 @@ private final class ShakeDetector: UIView {
 }
 
 private struct CityListReorderUIKitView: UIViewControllerRepresentable {
+    // Observe appearance below the deferred geometry boundary.
+    @Environment(\.appTheme) private var theme
     @Binding var cities: [City]
     let selectedInstant: Date
     let userCurrentLocationItem: CitySearchItem?
-    let cityViewPreference: CityViewPreference
+    // Observe at the native list boundary, below deferred geometry/content closures.
+    @AppStorage(CityViewPreference.storageKey) private var cityViewPreferenceRawValue = CityViewPreference.basic.rawValue
+    private var cityViewPreference: CityViewPreference {
+        CityViewPreference.from(rawValue: cityViewPreferenceRawValue)
+    }
     let topSafeAreaInset: CGFloat
     let bottomContentInset: CGFloat
-    let cardBackgroundColor: Color
     let onRenameRequested: (City) -> Void
     let onCitySelected: (City) -> Void
+    var duoViewport: CGSize? = nil
 
     final class Coordinator {
         var parent: CityListReorderUIKitView
@@ -689,6 +914,7 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
         controller.onCitySelected = { [weak coordinator = context.coordinator] city in
             coordinator?.parent.onCitySelected(city)
         }
+        controller.prepareDuoLayout(viewport: duoViewport)
         controller.apply(
             cities: cities,
             selectedInstant: selectedInstant,
@@ -696,7 +922,7 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
             cityViewPreference: cityViewPreference,
             topInset: topSafeAreaInset,
             bottomInset: bottomContentInset,
-            cardBackgroundColor: cardBackgroundColor
+            cardBackgroundColor: SheetStyle.appCardBackground(for: theme)
         )
         return controller
     }
@@ -712,6 +938,7 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
         uiViewController.onCitySelected = { [weak coordinator = context.coordinator] city in
             coordinator?.parent.onCitySelected(city)
         }
+        uiViewController.prepareDuoLayout(viewport: duoViewport)
         uiViewController.apply(
             cities: cities,
             selectedInstant: selectedInstant,
@@ -719,7 +946,7 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
             cityViewPreference: cityViewPreference,
             topInset: topSafeAreaInset,
             bottomInset: bottomContentInset,
-            cardBackgroundColor: cardBackgroundColor
+            cardBackgroundColor: SheetStyle.appCardBackground(for: theme)
         )
     }
 }
@@ -767,6 +994,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     }()
     private lazy var collectionView: UICollectionView = {
         let collectionView = UICollectionView(frame: .zero, collectionViewLayout: collectionViewLayout)
+        collectionView.topEdgeEffect.style = .soft
         collectionView.backgroundColor = .clear
         collectionView.showsVerticalScrollIndicator = false
         collectionView.alwaysBounceVertical = true
@@ -791,6 +1019,50 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         recognizer.cancelsTouchesInView = false
         return recognizer
     }()
+
+    private var duoViewport: CGSize?
+    private struct ScrollAnchor {
+        let candidates: [City.ID]
+        let offset: CGFloat
+        let isAtTop: Bool
+    }
+    private var duoScrollAnchor: ScrollAnchor?
+    private var lastDuoScrollAnchor: ScrollAnchor?
+
+    private func captureDuoScrollAnchor() -> ScrollAnchor? {
+        let y = collectionView.contentOffset.y
+        guard let visible = collectionView.indexPathsForVisibleItems.sorted().first(where: {
+            (collectionView.layoutAttributesForItem(at: $0)?.frame.maxY ?? 0) > y
+        }), citiesLocal.indices.contains(visible.item),
+            let frame = collectionView.layoutAttributesForItem(at: visible)?.frame else { return nil }
+        let candidates = Array(citiesLocal[visible.item...].map(\.id)) + citiesLocal[..<visible.item].reversed().map(\.id)
+        return ScrollAnchor(candidates: candidates, offset: y - frame.minY, isAtTop: y <= 0)
+    }
+
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        // UIKit may adjust its offset before SwiftUI supplies the new pane size.
+        // Preserve the last user anchor, not that transient automatic adjustment.
+        guard duoViewport != nil, duoScrollAnchor == nil,
+              scrollView.isDragging || scrollView.isDecelerating || isReordering else { return }
+        lastDuoScrollAnchor = captureDuoScrollAnchor()
+    }
+
+    func prepareDuoLayout(viewport: CGSize?) {
+        guard viewport != duoViewport else { return }
+        if duoViewport != nil {
+            duoScrollAnchor = lastDuoScrollAnchor ?? captureDuoScrollAnchor()
+            if isReordering {
+                collectionView.cancelInteractiveMovement()
+                finishInteractiveMovement()
+            }
+        }
+        duoViewport = viewport
+        if viewport != nil {
+            collectionView.contentInsetAdjustmentBehavior = .never
+            collectionView.automaticallyAdjustsScrollIndicatorInsets = false
+        }
+        collectionView.collectionViewLayout.invalidateLayout()
+    }
 
     private var citiesLocal: [City] = []
     private var selectedInstant: Date = Date()
@@ -834,6 +1106,27 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         applySectionInsets()
+        if duoViewport != nil, let anchor = duoScrollAnchor {
+            duoScrollAnchor = nil
+            collectionView.layoutIfNeeded()
+            if let id = anchor.candidates.first(where: { id in citiesLocal.contains(where: { $0.id == id }) }),
+               let index = citiesLocal.firstIndex(where: { $0.id == id }) {
+                let path = IndexPath(item: index, section: 0)
+                // Materialize the anchor before reading its frame. List layouts
+                // otherwise return estimated positions for newly exposed rows.
+                if !anchor.isAtTop {
+                    collectionView.scrollToItem(at: path, at: .top, animated: false)
+                    collectionView.layoutIfNeeded()
+                }
+                let frame = collectionView.layoutAttributesForItem(at: path)?.frame ?? .zero
+                let maximum = max(0, collectionView.contentSize.height + collectionView.contentInset.bottom - collectionView.bounds.height)
+                let offset = anchor.isAtTop ? 0 : min(maximum, max(0, frame.minY + anchor.offset))
+                collectionView.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
+            }
+        }
+        if duoViewport != nil, lastDuoScrollAnchor == nil {
+            lastDuoScrollAnchor = captureDuoScrollAnchor()
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -924,7 +1217,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
 
     private func applyDeterministicBottomInset() {
         let desiredGap = bottomInset
-        let safeBottom = collectionView.safeAreaInsets.bottom
+        let safeBottom = duoViewport == nil ? collectionView.safeAreaInsets.bottom : 0
         // Keep UIKit automatic safe-area adjustment enabled, so adjusted bottom becomes:
         // adjusted = contentInset.bottom + safeBottom ~= desiredGap (130pt target).
         let targetContentInsetBottom = max(0, desiredGap - safeBottom)
@@ -991,7 +1284,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
                 isCurrent: indexPath.item == 0,
                 isUserCurrentLocation: matchedCurrentLocationIndex == indexPath.item,
                 cityViewPreference: cityViewPreference,
-                cardBackgroundColor: cardBackgroundColor
+                cardBackgroundColor: cardBackgroundColor,
+                isDuoPresentation: duoViewport != nil
             )
         }
     }
@@ -1272,7 +1566,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             isCurrent: indexPath.item == 0,
             isUserCurrentLocation: matchedCurrentLocationIndex == indexPath.item,
             cityViewPreference: cityViewPreference,
-            cardBackgroundColor: cardBackgroundColor
+            cardBackgroundColor: cardBackgroundColor,
+            isDuoPresentation: duoViewport != nil
         )
         return cell
     }
@@ -1316,7 +1611,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     ) -> CGSize {
         CGSize(
             width: max(0, collectionView.bounds.width - 32),
-            height: topInset + Self.logoHeight + Self.logoBottomSpacing
+            height: topInset + Self.logoHeight + (duoViewport == nil ? Self.logoBottomSpacing : 24)
         )
     }
 
@@ -1340,7 +1635,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             topInset: topInset,
             logoHeight: Self.logoHeight,
             logoWidth: Self.logoWidth,
-            logoBottomSpacing: Self.logoBottomSpacing
+            logoBottomSpacing: duoViewport == nil ? Self.logoBottomSpacing : 24,
+            duoAlignment: duoViewport != nil
         )
 
         return header
@@ -1368,6 +1664,14 @@ private final class CityListLogoHeaderView: UICollectionReusableView {
     private var widthConstraint: NSLayoutConstraint?
     private var bottomConstraint: NSLayoutConstraint?
     private var centerXConstraint: NSLayoutConstraint?
+    private var duoAlignment = false
+
+    override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
+        guard duoAlignment else { return super.preferredLayoutAttributesFitting(layoutAttributes) }
+        let attributes = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
+        attributes.size.height = 64
+        return attributes
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1401,7 +1705,9 @@ private final class CityListLogoHeaderView: UICollectionReusableView {
     }
 
     override func layoutSubviews() {
-        if let collectionView = superview as? UICollectionView,
+        if duoAlignment {
+            if centerXConstraint?.constant != 3 { centerXConstraint?.constant = 3 }
+        } else if let collectionView = superview as? UICollectionView,
            let cell = collectionView.visibleCells.first {
             let cellFrame = cell.contentView.convert(cell.contentView.bounds, to: collectionView)
             let safeFrame = collectionView.safeAreaLayoutGuide.layoutFrame
@@ -1420,7 +1726,8 @@ private final class CityListLogoHeaderView: UICollectionReusableView {
         setNeedsLayout()
     }
 
-    func configure(topInset: CGFloat, logoHeight: CGFloat, logoWidth: CGFloat, logoBottomSpacing: CGFloat) {
+    func configure(topInset: CGFloat, logoHeight: CGFloat, logoWidth: CGFloat, logoBottomSpacing: CGFloat, duoAlignment: Bool = false) {
+        self.duoAlignment = duoAlignment
         topConstraint?.constant = topInset
         heightConstraint?.constant = logoHeight
         widthConstraint?.constant = logoWidth
@@ -1430,6 +1737,24 @@ private final class CityListLogoHeaderView: UICollectionReusableView {
 
 private final class CityListReorderCollectionCell: UICollectionViewCell {
     static let reuseIdentifier = "CityListReorderCollectionCell"
+    private var duoCardHeight: CGFloat?
+    private var usesResolvedPaneSafeArea = false
+
+    override var safeAreaInsets: UIEdgeInsets {
+        // The Duo pane already resolves its safe area. Propagating the changing
+        // display-edge inset into fixed-height hosted cards shifts their drawing
+        // inside otherwise stationary cells as they cross the bottom edge.
+        usesResolvedPaneSafeArea ? .zero : super.safeAreaInsets
+    }
+
+    override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
+        if let duoCardHeight {
+            let attributes = layoutAttributes.copy() as! UICollectionViewLayoutAttributes
+            attributes.size.height = duoCardHeight
+            return attributes
+        }
+        return super.preferredLayoutAttributesFitting(layoutAttributes)
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1454,11 +1779,17 @@ private final class CityListReorderCollectionCell: UICollectionViewCell {
         isCurrent: Bool,
         isUserCurrentLocation: Bool,
         cityViewPreference: CityViewPreference,
-        cardBackgroundColor: Color
+        cardBackgroundColor: Color,
+        isDuoPresentation: Bool = false
     ) {
+        if usesResolvedPaneSafeArea != isDuoPresentation {
+            usesResolvedPaneSafeArea = isDuoPresentation
+            setNeedsLayout()
+        }
+        duoCardHeight = isDuoPresentation ? (cityViewPreference == .compact ? 88 : 140) : nil
         let resolvedTheme = AppTheme.forColorScheme(traitCollection.userInterfaceStyle == .dark ? .dark : .light)
         contentConfiguration = UIHostingConfiguration {
-            CityCardView(
+            let card = CityCardView(
                 city: city,
                 selectedInstant: selectedInstant,
                 referenceTimeZone: referenceTimeZone,
@@ -1468,6 +1799,11 @@ private final class CityListReorderCollectionCell: UICollectionViewCell {
                 cardBackgroundColor: cardBackgroundColor
             )
             .environment(\.appTheme, resolvedTheme)
+            if isDuoPresentation {
+                card.ignoresSafeArea(.container)
+            } else {
+                card
+            }
         }
         .margins(.all, 0)
     }

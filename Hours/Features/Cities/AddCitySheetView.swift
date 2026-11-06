@@ -168,6 +168,7 @@ struct AddCitySheetView: View {
                     }
                 }
             }
+            .scrollEdgeEffectStyle(.soft, for: .top)
             .environment(\.defaultMinListRowHeight, 0)
             .listStyle(.plain)
             .scrollContentBackground(.hidden)

@@ -12,23 +12,47 @@ struct WorldMapView: View {
     @Binding var horizontalPosition: CGFloat
     let cities: [City]
     let selectedInstant: Date
+    var geometryProfile: WorldMapGeometryProfile = .conventional
+    var isPresentationVisible: Bool = true
+    /// Optional drawing bounds in the logical viewport's coordinates. This is
+    /// visual overflow only; native scrolling, projection and hit testing keep
+    /// using `viewportSize` (including when the physical rail is on the left).
+    var visualViewport: CGRect? = nil
+    /// Constant for the lifetime of the Duo presentation, including inner mode.
+    /// Conventional maps retain their original frame-and-clip modifier chain.
+    var usesDuoDrawingContainer: Bool = false
+    var onCitiesSelected: ([City.ID]) -> Void = { _ in }
 
     @AppStorage(AppTimeFormatPreference.storageKey) private var timeFormatPreference = AppTimeFormatPreference.system.rawValue
     @Environment(\.locale) private var locale
 
-    var body: some View {
+    private var viewportContent: some View {
         WorldMapScrollAdapter(
             horizontalPosition: $horizontalPosition,
             cities: cities,
             selectedInstant: selectedInstant,
             timeFormatPreference: timeFormatPreference,
-            localeIdentifier: locale.identifier
+            localeIdentifier: locale.identifier,
+            geometryProfile: geometryProfile,
+            isPresentationVisible: isPresentationVisible,
+            visualViewport: visualViewport,
+            onCitiesSelected: onCitiesSelected
         )
             .frame(
                 width: viewportSize.width.isFinite ? max(0, viewportSize.width) : 0,
                 height: viewportSize.height.isFinite ? max(0, viewportSize.height) : 0
             )
-            .clipped()
+    }
+
+    var body: some View {
+        if usesDuoDrawingContainer {
+            viewportContent
+                .offset(x: visualViewport.map { viewportSize.width / 2 - $0.midX } ?? 0)
+                .frame(width: visualViewport?.width, height: visualViewport?.height)
+                .clipped()
+        } else {
+            viewportContent.clipped()
+        }
     }
 }
 
@@ -38,6 +62,10 @@ private struct WorldMapScrollAdapter: UIViewRepresentable {
     let selectedInstant: Date
     let timeFormatPreference: String
     let localeIdentifier: String
+    let geometryProfile: WorldMapGeometryProfile
+    let isPresentationVisible: Bool
+    let visualViewport: CGRect?
+    let onCitiesSelected: ([City.ID]) -> Void
 
     func makeUIView(context: Context) -> WorldMapScrollView {
         WorldMapScrollView()
@@ -46,21 +74,54 @@ private struct WorldMapScrollAdapter: UIViewRepresentable {
     static func dismantleUIView(_ view: WorldMapScrollView, coordinator: ()) {
         // Defer a final binding write out of SwiftUI's teardown transaction.
         view.publishPosition(deferred: true)
+        view.dismissCityChooser()
+        view.releaseIllumination()
     }
 
     func updateUIView(_ view: WorldMapScrollView, context: Context) {
+        view.onCitiesSelected = onCitiesSelected
+        view.updatePresentation(profile: geometryProfile, visible: isPresentationVisible, visualViewport: visualViewport)
         view.updatePosition(horizontalPosition) { horizontalPosition = $0 }
+        guard isPresentationVisible else { return }
+        view.updateIllumination(at: selectedInstant)
+        view.updateNightLights(cities)
         view.updateMarkers(cities, at: selectedInstant, timeFormatPreference: timeFormatPreference, localeIdentifier: localeIdentifier)
     }
 }
 
 private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
+    // UIScrollView is also the delegate of its native recognizers. Keep this
+    // marker-only filter separate so it cannot reject touches needed by UIKit.
+    private final class MarkerTapDelegate: NSObject, UIGestureRecognizerDelegate {
+        private weak var map: WorldMapScrollView?
+
+        init(map: WorldMapScrollView) { self.map = map }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            guard let map else { return false }
+            return map.isPresentationVisible && !map.isDragging && !map.isDecelerating
+        }
+    }
+
     // Image and markers occupy the same square, top-left-origin canvas.
     private let repeatedImage = WorldMapRepeatingView()
     private let repeatedCanvas = WorldMapRepeatingView()
     private let mapCanvas = UIView()
-    private var markerAccessibility: [UIAccessibilityElement] = []
+    private var markerAccessibility: [WorldMapAccessibilityElement] = []
+    private var hitDots: [WorldMapHitTesting.Target] = []
+    private var hitLabels: [WorldMapHitTesting.Target] = []
+    var onCitiesSelected: ([City.ID]) -> Void = { _ in }
+    private weak var cityChooser: UIAlertController?
+    private let selectionHaptic = UIImpactFeedbackGenerator(style: .medium)
+    private lazy var markerTapDelegate = MarkerTapDelegate(map: self)
+    private lazy var markerTap = UITapGestureRecognizer(target: self, action: #selector(didTapMarker(_:)))
     private let imageView = UIImageView(image: UIImage(named: "worldmap"))
+    private var dayNightOverlay: DayNightOverlay?
+    private var illuminationInstant: Date?
+    private var attemptedIllumination = false
+    private let nightLightCatalog = NightCityLights()
+    private var nightLightCities: [City]?
+    private var nightLights: [NightCityLights.Light] = []
     private let coordinateResolver = LegacyCityCoordinateResolver()
     private var markers: [WorldMapMarkerView] = []
     private var sharedLabels: [WorldMapSharedLabelView] = []
@@ -80,6 +141,31 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
     private var needsPositionUpdate = true
     private var isLayingOutMap = false
     private var positionChanged: ((CGFloat) -> Void)?
+    private var geometryProfile: WorldMapGeometryProfile = .conventional
+    private var isPresentationVisible = true
+    private var visualViewport: CGRect?
+
+    func updatePresentation(profile: WorldMapGeometryProfile, visible: Bool, visualViewport: CGRect? = nil) {
+        if self.visualViewport != visualViewport {
+            self.visualViewport = visualViewport
+            // SwiftUI clips the expanded drawing frame at the display edge.
+            // UIKit still rejects touches outside the unchanged scroll bounds.
+            clipsToBounds = visualViewport == nil
+            setNeedsLayout()
+        }
+        if geometryProfile != profile {
+            geometryProfile = profile
+            needsPositionUpdate = true
+            setNeedsLayout()
+        }
+        guard isPresentationVisible != visible else { return }
+        if !visible { dismissCityChooser() }
+        isPresentationVisible = visible
+        isUserInteractionEnabled = visible
+        accessibilityElementsHidden = !visible
+        dayNightOverlay?.setPresentationVisible(visible)
+        if visible { setNeedsLayout() }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -107,6 +193,12 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
         addSubview(repeatedCanvas)
         repeatedCanvas.addSubview(mapCanvas)
         mapCanvas.accessibilityElementsHidden = true
+        // One recognizer covers the layer-only world copies. Native scrolling
+        // wins; a touch that stops deceleration is not also a city selection.
+        markerTap.delegate = markerTapDelegate
+        markerTap.cancelsTouchesInView = false
+        markerTap.require(toFail: panGestureRecognizer)
+        addGestureRecognizer(markerTap)
     }
 
     required init?(coder: NSCoder) {
@@ -136,9 +228,9 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
         if viewport != lastViewportSize || needsPositionUpdate {
             lastViewportSize = viewport
             needsPositionUpdate = false
-            let scale = max(viewport.width / 393, viewport.height / 852)
-            let side = 1129 * scale
-            let canvasFrame = CGRect(x: 0, y: -13 * scale, width: 3 * side, height: side)
+            let geometry = geometryProfile.canvas(in: viewport)
+            let side = geometry.side
+            let canvasFrame = CGRect(x: 0, y: geometry.top, width: 3 * side, height: side)
             repeatedImage.frame = canvasFrame
             repeatedCanvas.frame = canvasFrame
             repeatedImage.replicator.instanceCount = 3
@@ -150,6 +242,53 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
             contentOffset = CGPoint(x: side + normalizedCenter * side - viewport.width / 2, y: 0)
         }
         recenterIfNecessary()
+        layoutIllumination()
+    }
+
+    func updateIllumination(at instant: Date) {
+        guard illuminationInstant != instant else { return }
+        illuminationInstant = instant
+        setNeedsLayout()
+    }
+
+    func updateNightLights(_ cities: [City]) {
+        guard nightLightCities != cities else { return }
+        nightLightCities = cities
+        nightLights = nightLightCatalog.lights(savedCities: cities)
+        dayNightOverlay?.updateLights(nightLights)
+    }
+
+    private func layoutIllumination() {
+        guard isPresentationVisible, let instant = illuminationInstant, window != nil else { return }
+        if !attemptedIllumination {
+            attemptedIllumination = true
+            // Failure leaves the original map intact; retry only on a new mount.
+            if let renderer = try? NightRenderer() {
+                let overlay = DayNightOverlay(renderer: renderer, date: instant)
+                overlay.updateLights(nightLights)
+                insertSubview(overlay, aboveSubview: repeatedImage)
+                dayNightOverlay = overlay
+            }
+        }
+        guard let overlay = dayNightOverlay else { return }
+        let side = mapCanvas.bounds.width
+        // Pin one surface to the viewport inside the scroll view. Read the final
+        // native bounds after recentering, never the deferred SwiftUI binding.
+        let drawingBounds = visualViewport?.offsetBy(dx: bounds.minX, dy: bounds.minY) ?? bounds
+        overlay.frame = drawingBounds
+        overlay.update(
+            date: instant,
+            origin: SIMD2(Double((drawingBounds.minX - repeatedImage.frame.minX) / side),
+                          Double((drawingBounds.minY - repeatedImage.frame.minY) / side)),
+            span: SIMD2(Double(drawingBounds.width / side), Double(drawingBounds.height / side)),
+            style: NightStyle()
+        )
+    }
+
+    func releaseIllumination() {
+        dayNightOverlay?.suspend()
+        dayNightOverlay?.removeFromSuperview()
+        dayNightOverlay = nil
     }
 
     private func recenterIfNecessary() {
@@ -194,22 +333,120 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
         }
     }
 
+    @objc private func didTapMarker(_ recognizer: UITapGestureRecognizer) {
+        guard recognizer.state == .ended, !isDragging, !isDecelerating else { return }
+        activateCities(cityIDs(at: recognizer.location(in: self)))
+    }
+
+    private func cityIDs(at point: CGPoint) -> [City.ID] {
+        guard isPresentationVisible, bounds.contains(point) else { return [] }
+        let canvasPoint = CGPoint(x: point.x, y: point.y - repeatedCanvas.frame.minY)
+        return WorldMapHitTesting.cityIDs(at: canvasPoint, dots: hitDots, labels: hitLabels,
+                                         period: mapCanvas.bounds.width)
+    }
+
+    @discardableResult
+    private func activateCities(_ ids: [City.ID]) -> Bool {
+        guard isPresentationVisible else { return false }
+        let requested = Set(ids)
+        // Saved order is authoritative, independent of visual overlap/z-order.
+        var seen = Set<City.ID>()
+        let current = lastCities.map(\.id).filter { requested.contains($0) && seen.insert($0).inserted }
+        guard !current.isEmpty else { return false }
+        publishPosition()
+        if current.count == 1 {
+            selectionHaptic.impactOccurred()
+            onCitiesSelected(current)
+            return true
+        }
+        return presentCityChooser(current)
+    }
+
+    func dismissCityChooser() {
+        cityChooser?.dismiss(animated: false)
+        cityChooser = nil
+    }
+
+    private func presentCityChooser(_ ids: [City.ID]) -> Bool {
+        guard window != nil, cityChooser == nil else { return false }
+        // Resolve the actual mounted UIKit host, not a SwiftUI presentation
+        // modifier captured inside the deferred map builder.
+        var responder: UIResponder? = self
+        while responder != nil && !(responder is UIViewController) { responder = responder?.next }
+        guard var host = responder as? UIViewController else { return false }
+        while let parent = host.parent { host = parent }
+        guard host.viewIfLoaded?.window != nil, host.presentedViewController == nil,
+              !host.isBeingDismissed, !host.isBeingPresented else { return false }
+        let cities = ids.compactMap { id in lastCities.first { $0.id == id } }
+        guard cities.count > 1 else { return false }
+        let chooser = UIAlertController(title: "Choose a city", message: nil, preferredStyle: .actionSheet)
+        for city in cities {
+            let id = city.id
+            chooser.addAction(UIAlertAction(title: WorldMapCitySelection.title(for: city, among: cities), style: .default) { [weak self, weak chooser] _ in
+                chooser?.dismiss(animated: true) { [weak self] in
+                    guard let self, self.isPresentationVisible,
+                          self.lastCities.contains(where: { $0.id == id }) else { return }
+                    self.onCitiesSelected([id])
+                }
+            })
+        }
+        chooser.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+        if let popover = chooser.popoverPresentationController {
+            popover.sourceView = self
+            popover.sourceRect = CGRect(x: bounds.midX, y: bounds.midY, width: 1, height: 1)
+            popover.permittedArrowDirections = []
+        }
+        cityChooser = chooser
+        host.present(chooser, animated: true) { [weak self, weak chooser] in
+            guard let self, let chooser, chooser.presentingViewController != nil else { return }
+            self.selectionHaptic.impactOccurred()
+        }
+        return true
+    }
+
     override var accessibilityElements: [Any]? {
         get {
             let side = mapCanvas.bounds.width
-            guard side > 0 else { return [] }
-            let center = contentOffset.x + bounds.width / 2
-            for (marker, element) in zip(markers, markerAccessibility) {
-                let rectangle = marker.convert(marker.bounds, to: mapCanvas)
-                let cycle = ((center - rectangle.midX) / side).rounded()
-                element.accessibilityLabel = marker.accessibilityLabel
-                element.accessibilityValue = marker.accessibilityValue
-                element.accessibilityTraits = .staticText
-                element.accessibilityFrameInContainerSpace = rectangle.offsetBy(dx: cycle * side, dy: repeatedCanvas.frame.minY)
+            guard side > 0, isPresentationVisible else { return [] }
+            return markerAccessibility.filter { element in
+                let rect = WorldMapPeriodic.nearest(element.canvasBounds, to: bounds.midX, period: side)
+                    .offsetBy(dx: 0, dy: repeatedCanvas.frame.minY)
+                element.accessibilityFrameInContainerSpace = rect.intersection(bounds)
+                return rect.intersects(bounds)
             }
-            return markerAccessibility
         }
         set { super.accessibilityElements = newValue }
+    }
+
+    /// Rebuilt only with marker layout; scrolling and tapping reuse these rectangles.
+    private func cacheInteractionGeometry() {
+        hitDots = lastGroupingInputs.map { .init(cityIDs: [$0.cityID], bounds: $0.dotBounds) }
+        hitLabels = markers.filter { !$0.labelsHidden }.map {
+            .init(cityIDs: [$0.cityID], bounds: $0.convert($0.placedLabelBounds, to: mapCanvas))
+        } + sharedLabels.map {
+            .init(cityIDs: $0.cityIDs, bounds: $0.convert($0.labelBounds, to: mapCanvas))
+        }
+        markerAccessibility = markers.enumerated().map { index, marker in
+            let dot = hitDots[index].bounds
+            let target = marker.labelsHidden ? dot.insetBy(dx: -12, dy: -12)
+                : dot.union(marker.convert(marker.placedLabelBounds, to: mapCanvas))
+            return accessibilityElement(ids: [marker.cityID], bounds: target,
+                                        name: marker.displayName, time: marker.displayedTime)
+        } + sharedLabels.map { label in
+            accessibilityElement(ids: label.cityIDs, bounds: label.convert(label.labelBounds, to: mapCanvas),
+                                 name: label.fullNames.joined(separator: ", "), time: label.displayedTime)
+        }
+    }
+
+    private func accessibilityElement(ids: [City.ID], bounds: CGRect, name: String, time: String) -> WorldMapAccessibilityElement {
+        let element = WorldMapAccessibilityElement(accessibilityContainer: self)
+        element.canvasBounds = bounds
+        element.accessibilityLabel = name
+        element.accessibilityValue = time
+        element.accessibilityTraits = .button
+        element.accessibilityHint = ids.count == 1 ? "Opens City Details" : "Choose a city to open City Details"
+        element.activate = { [weak self] in self?.activateCities(ids) ?? false }
+        return element
     }
 
     func updateMarkers(_ cities: [City], at instant: Date, timeFormatPreference: String, localeIdentifier: String) {
@@ -230,7 +467,6 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
             }
             for marker in reusable.values.joined() { marker.removeFromSuperview() }
             lastCities = cities
-            markerAccessibility = markers.map { _ in UIAccessibilityElement(accessibilityContainer: self) }
         }
         var labelsChanged = citiesChanged
         for marker in markers {
@@ -255,6 +491,7 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
         }
         layoutSharedLabels(scale: scale)
         layoutRepetition()
+        cacheInteractionGeometry()
     }
 
     private func layoutRepetition() {
@@ -311,6 +548,9 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
                 WorldMapMarkerView.label($0, size: 14).size().width
             }
             let label = sharedLabels[index]
+            label.cityIDs = group.map { markers[$0].cityID }
+            label.fullNames = names
+            label.displayedTime = inputs[group[0]].time
             label.configure(name: name, time: inputs[group[0]].time)
             let footprint = WorldMapLabelGrouping.footprint(group, inputs: inputs, periodWidth: mapCanvas.bounds.width)
             label.transform = CGAffineTransform(scaleX: scale, y: scale)
@@ -460,11 +700,11 @@ private final class WorldMapMarkerView: UIView {
     }
 
     static func label(_ text: String, size: CGFloat) -> NSAttributedString {
-        // Figma: SF Pro Semibold, -4% tracking and black fill.
+        // Figma: SF Pro Semibold and -4% tracking; colors follow app appearance.
         NSAttributedString(string: text, attributes: [
             .font: UIFont.systemFont(ofSize: size, weight: .semibold),
             .kern: -0.04 * size,
-            .foregroundColor: UIColor.black
+            .foregroundColor: WorldMapMarkerLabel.fillColor
         ])
     }
 }
@@ -549,6 +789,9 @@ private enum WorldMapLabelGrouping {
 }
 
 private final class WorldMapSharedLabelView: UIView {
+    var cityIDs: [City.ID] = []
+    var fullNames: [String] = []
+    var displayedTime = ""
     private let nameLabel = WorldMapMarkerLabel()
     private let timeLabel = WorldMapMarkerLabel()
 
@@ -588,19 +831,53 @@ private final class WorldMapSharedLabelView: UIView {
 }
 
 private final class WorldMapMarkerLabel: UILabel {
+    static let fillColor = UIColor { traits in
+        traits.userInterfaceStyle == .dark ? .white : .black
+    }
+    private static let outlineColor = UIColor { traits in
+        (traits.userInterfaceStyle == .dark ? UIColor.black : .white).withAlphaComponent(0.5)
+    }
+    private var outlineText: NSAttributedString?
+    private var textSize = CGSize.zero
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (label: WorldMapMarkerLabel, _) in
+            // Repaint the existing backing; appearance does not invalidate layout.
+            label.setNeedsDisplay()
+        }
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override var attributedText: NSAttributedString? {
+        didSet {
+            outlineText = nil
+            textSize = .zero
+            guard let text = attributedText, text.length > 0,
+                  let font = text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont else { return }
+            textSize = text.size()
+            let outline = NSMutableAttributedString(attributedString: text)
+            outline.addAttributes([
+                .strokeColor: Self.outlineColor,
+                .strokeWidth: 200 / font.pointSize
+            ], range: NSRange(location: 0, length: text.length))
+            outlineText = outline
+        }
+    }
+
     override func drawText(in rect: CGRect) {
-        guard let text = attributedText, text.length > 0,
-              let font = text.attribute(.font, at: 0, effectiveRange: nil) as? UIFont else { return }
-        let size = text.size()
-        let origin = CGPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2)
-        let outline = NSMutableAttributedString(attributedString: text)
-        outline.addAttributes([
-            .strokeColor: UIColor.white,
-            .strokeWidth: 200 / font.pointSize
-        ], range: NSRange(location: 0, length: text.length))
-        // Paint the 2-point centered stroke first, then the fill, leaving Figma's
-        // 1-point outer outline without covering the black glyphs.
-        outline.draw(at: origin)
+        guard let text = attributedText, let outlineText,
+              let context = UIGraphicsGetCurrentContext() else { return }
+        let origin = CGPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2)
+        context.saveGState()
+        defer { context.restoreGState() }
+        // Miter joins create long spikes at acute glyph corners (notably M).
+        // A rounded 2-point centered stroke stays within the measured 1-point
+        // outer outline; the unchanged fill is painted over its inner half.
+        context.setLineJoin(.round)
+        context.setMiterLimit(1)
+        outlineText.draw(at: origin)
         text.draw(at: origin)
     }
 }
@@ -615,4 +892,48 @@ private final class WorldMapRepeatingView: UIView {
         isUserInteractionEnabled = false
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
+
+/// Geometry is in one canonical canvas. Nearest periodic copies also cover label
+/// overhang at the date line, regardless of the replicator's current guard cycles.
+private enum WorldMapHitTesting {
+    struct Target {
+        let cityIDs: [City.ID]
+        let bounds: CGRect
+    }
+
+    static func cityIDs(at point: CGPoint, dots: [Target], labels: [Target], period: CGFloat) -> [City.ID] {
+        guard period > 0 else { return [] }
+        func distance(_ rect: CGRect) -> CGFloat {
+            hypot(point.x - rect.midX, point.y - rect.midY)
+        }
+        func unique(_ targets: [Target]) -> [City.ID] {
+            var seen = Set<City.ID>()
+            return targets.flatMap(\.cityIDs).filter { seen.insert($0).inserted }
+        }
+        let nearby = dots.compactMap { target -> (Target, CGFloat, CGFloat)? in
+            let rect = WorldMapPeriodic.nearest(target.bounds, to: point.x, period: period)
+            let d = distance(rect), visibleRadius = rect.width / 2
+            // 36-point diameter, independent of map scale. It cannot steal a
+            // label tap and resolves to the nearest dot rather than view order.
+            guard d <= max(18, visibleRadius) else { return nil }
+            return (target, d, visibleRadius)
+        }
+        let visible = nearby.filter { $0.1 <= $0.2 }
+        if !visible.isEmpty { return unique(visible.map { $0.0 }) }
+        let labelHits = labels.filter {
+            WorldMapPeriodic.nearest($0.bounds, to: point.x, period: period).contains(point)
+        }
+        if !labelHits.isEmpty { return unique(labelHits) }
+        guard let nearest = nearby.map({ $0.1 }).min() else { return [] }
+        // A one-point tolerance avoids floating-point/pixel rounding deciding a tie.
+        return unique(nearby.filter { abs($0.1 - nearest) <= 1 }.map { $0.0 })
+    }
+}
+
+private final class WorldMapAccessibilityElement: UIAccessibilityElement {
+    var canvasBounds = CGRect.zero
+    var activate: (() -> Bool)?
+    override func accessibilityActivate() -> Bool { activate?() ?? false }
 }

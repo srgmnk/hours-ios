@@ -17,6 +17,7 @@ struct TimeDialView: View {
     let onDragChanged: (Double) -> Void
     let onDragEnded: (Double, Double) -> Void
     let onDragCancelled: () -> Void
+    var layoutCancellationFrame: CGRect? = nil
 
     @State private var dragStartAngle: Double?
     @State private var startRotationDegrees = 0.0
@@ -176,6 +177,10 @@ struct TimeDialView: View {
             }
         }
         .onDisappear(perform: cancelDrag)
+        .onChange(of: layoutCancellationFrame) { _, _ in
+            // Cancels only an active finger session; model inertia is untouched.
+            cancelDrag()
+        }
         .onChange(of: resetSignal) { _, _ in
             cancelDrag()
         }

@@ -12,12 +12,15 @@ struct DeltaPillView: View {
     let mode: PillMode
     let deltaText: String
     let onTapReset: () -> Void
+    var isDuoPresentation = false
 
     private let pillShape = RoundedRectangle(cornerRadius: 100, style: .continuous)
     private var appearance: DialPillAppearance {
         switch mode {
         case .now:
-            return theme.pillNow
+            return isDuoPresentation && theme.variant == .light
+                ? DialPillAppearance(foregroundColor: .white, glassTintColor: .black.opacity(0.2), usesInteractiveGlass: false)
+                : theme.pillNow
         case .future:
             return theme.pillFuture
         case .past:
@@ -28,12 +31,13 @@ struct DeltaPillView: View {
     var body: some View {
         pillContent
             .font(.system(size: 16, weight: .semibold))
+            .tracking(isDuoPresentation ? -0.48 : 0)
             .foregroundStyle(appearance.foregroundColor)
             .lineLimit(1)
             .lineSpacing(0)
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, verticalPadding)
-            .frame(height: 30)
+            .frame(width: isDuoPresentation && mode == .now ? 50 : nil, height: 30)
             .fixedSize(horizontal: true, vertical: false)
             .modifier(PillGlassEffectModifier(appearance: appearance, shape: pillShape))
             .contentShape(pillShape)
@@ -60,7 +64,7 @@ struct DeltaPillView: View {
     }
 
     private var horizontalPadding: CGFloat {
-        mode == .now ? 12 : 8
+        mode == .now && !isDuoPresentation ? 12 : 8
     }
 
     private var verticalPadding: CGFloat {
