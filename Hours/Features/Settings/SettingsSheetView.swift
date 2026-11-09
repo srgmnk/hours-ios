@@ -13,6 +13,7 @@ private enum SettingsLinkAction {
     case shareApp
     case privacyPolicy
     case termsOfUse
+    case dataAttribution
 }
 
 struct SettingsSheetView: View {
@@ -95,6 +96,11 @@ struct SettingsSheetView: View {
                 title: "Terms of use",
                 trailing: RowTrailing.symbol("arrow.up.forward"),
                 action: .termsOfUse
+            ),
+            (
+                title: "Data attribution",
+                trailing: RowTrailing.symbol("chevron.right"),
+                action: .dataAttribution
             )
         ]
     }
@@ -339,6 +345,8 @@ struct SettingsSheetView: View {
                         presentedLegalDocument = .privacy
                     case .termsOfUse:
                         presentedLegalDocument = .terms
+                    case .dataAttribution:
+                        presentedLegalDocument = .dataAttribution
                     }
                 }
 

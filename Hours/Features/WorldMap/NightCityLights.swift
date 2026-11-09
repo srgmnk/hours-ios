@@ -37,10 +37,12 @@ struct NightCityLights {
     }
 
     init(catalog items: [CitySearchItem]) {
-        catalog = LocalCityCoordinates.byCatalogID.keys.sorted().map {
+        // Preserve the original base; newly saved catalog cities use the dynamic light path.
+        let decorativeIDs = Set(OriginalDecorativeCityIDs.catalogIDs)
+        catalog = OriginalDecorativeCityIDs.catalogIDs.map {
             Light(id: "catalog:" + $0, coordinate: LocalCityCoordinates.byCatalogID[$0]!)
         }
-        let identities = Dictionary(grouping: items, by: \.canonicalIdentity)
+        let identities = Dictionary(grouping: items.filter { decorativeIDs.contains($0.id) }, by: \.canonicalIdentity)
         catalogIdentities = Set(identities.compactMap { id, entries in
             entries.count == 1 && LocalCityCoordinates.byCatalogID[entries[0].id] != nil ? id : nil
         })

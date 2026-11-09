@@ -78,7 +78,13 @@ final class CitySearchProvider {
         let normalizedTimeZone: String
     }
 
+    private struct CompleterResolution {
+        let items: [CitySearchItem]
+        let hadAddressMatch: Bool
+    }
+
     private let indexedLocalItems: [IndexedLocalItem]
+    private let legacyIndexedLocalItems: [IndexedLocalItem]
     private let cityCountryToTimeZone: [String: String]
     private let zeroOffsetReferenceItems: [CitySearchItem]
     private let curatedPopularItems: [CitySearchItem]
@@ -109,12 +115,24 @@ final class CitySearchProvider {
         }
         indexedLocalItems = indexedLocalItemsLocal
 
-        var lookup: [String: String] = [:]
+        // Pre-canonical saved records have only a name and time zone. Expanding
+        // the catalog must not give those records a new inferred identity.
+        let originalCatalogIDs = Set(OriginalDecorativeCityIDs.catalogIDs)
+        legacyIndexedLocalItems = indexedLocalItemsLocal.filter {
+            originalCatalogIDs.contains($0.item.id)
+        }
+
+        var timeZonesByCityCountry: [String: Set<String>] = [:]
         for indexed in indexedLocalItemsLocal {
             let key = Self.cityCountryKey(city: indexed.normalizedCity, country: indexed.normalizedCountry)
-            lookup[key] = indexed.item.timeZoneIdentifier
+            timeZonesByCityCountry[key, default: []].insert(indexed.item.timeZoneIdentifier)
         }
-        cityCountryToTimeZone = lookup
+        // The existing remote conversion can use a catalog time zone only when
+        // the city/country key has one unambiguous assignment.
+        cityCountryToTimeZone = timeZonesByCityCountry.reduce(into: [:]) { lookup, entry in
+            guard entry.value.count == 1 else { return }
+            lookup[entry.key] = entry.value.first
+        }
 
         curatedPopularItems = Self.curatedPopularCitySeeds.map { seed in
             if let exact = indexedLocalItemsLocal.first(where: {
@@ -205,16 +223,19 @@ final class CitySearchProvider {
 
         let normalizedQuery = Self.normalize(query)
         if completerQueryLengthRange.contains(normalizedQuery.count) {
-            let completerResults = await completerFallbackResults(matching: query)
+            let resolution = await resolveCompleterResults(matching: query)
             guard !Task.isCancelled else { return localResults }
-            if !completerResults.isEmpty {
+            if !resolution.items.isEmpty {
                 return mergeResults(
                     localResults: localResults,
-                    fallbackResults: completerResults,
+                    fallbackResults: resolution.items,
                     excluding: existingTimeZoneIDs,
                     existingCanonicalIDs: existingCanonicalIDs
                 )
             }
+            // Filtering resolved roads/rivers/POIs must not introduce a second
+            // network search. Empty or failed resolution still uses the old fallback.
+            if resolution.hadAddressMatch { return localResults }
         }
 
         guard !Task.isCancelled else { return localResults }
@@ -234,14 +255,19 @@ final class CitySearchProvider {
     }
 
     func completerFallbackResults(matching query: String) async -> [CitySearchItem] {
-        guard !Task.isCancelled else { return [] }
+        await resolveCompleterResults(matching: query).items
+    }
+
+    private func resolveCompleterResults(matching query: String) async -> CompleterResolution {
+        guard !Task.isCancelled else { return CompleterResolution(items: [], hadAddressMatch: false) }
         let completions = await completerBridge.completions(for: query)
-        guard !Task.isCancelled else { return [] }
+        guard !Task.isCancelled else { return CompleterResolution(items: [], hadAddressMatch: false) }
 
         var resolvedItems: [CitySearchItem] = []
+        var hadAddressMatch = false
 
         for completion in completions.prefix(completerResultLimit) {
-            guard !Task.isCancelled else { return [] }
+            guard !Task.isCancelled else { return CompleterResolution(items: [], hadAddressMatch: hadAddressMatch) }
 
             let request = MKLocalSearch.Request(completion: completion)
             request.resultTypes = [.address]
@@ -253,16 +279,20 @@ final class CitySearchProvider {
                 continue
             }
 
-            guard !Task.isCancelled else { return [] }
-
+            guard !Task.isCancelled else { return CompleterResolution(items: [], hadAddressMatch: hadAddressMatch) }
             for mapItem in response.mapItems {
-                guard let item = citySearchItem(from: mapItem, idPrefix: "completer") else { continue }
+                guard let item = citySearchItem(from: mapItem, idPrefix: "completer",
+                                               matching: query) else {
+                    hadAddressMatch = hadAddressMatch || hasResolvableAddress(mapItem)
+                    continue
+                }
+                hadAddressMatch = true
                 resolvedItems.append(item)
                 break
             }
         }
 
-        return resolvedItems
+        return CompleterResolution(items: resolvedItems, hadAddressMatch: hadAddressMatch)
     }
 
     func canonicalItemForCurrentLocation(
@@ -272,32 +302,22 @@ final class CitySearchProvider {
     ) -> CitySearchItem? {
         let normalizedCity = Self.normalize(city)
         let normalizedCountry = Self.normalize(country)
-        let normalizedTimeZone = Self.normalize(timeZoneIdentifier)
 
-        if let exact = indexedLocalItems.first(where: {
+        let exactMatches = indexedLocalItems.filter {
             $0.normalizedCity == normalizedCity &&
             $0.normalizedCountry == normalizedCountry &&
-            $0.normalizedTimeZone == normalizedTimeZone
-        }) {
-            return exact.item
+            CityTimeZoneCompatibility.matches($0.item.timeZoneIdentifier, timeZoneIdentifier)
+        }
+        if !exactMatches.isEmpty {
+            return exactMatches.count == 1 ? exactMatches.first?.item : nil
         }
 
-        if let cityAndCountry = indexedLocalItems.first(where: {
-            $0.normalizedCity == normalizedCity &&
-            $0.normalizedCountry == normalizedCountry
-        }) {
-            return cityAndCountry.item
-        }
-
-        if let alias = indexedLocalItems.first(where: {
+        let aliasMatches = indexedLocalItems.filter {
             $0.normalizedAliases.contains(normalizedCity) &&
-            $0.normalizedTimeZone == normalizedTimeZone &&
+            CityTimeZoneCompatibility.matches($0.item.timeZoneIdentifier, timeZoneIdentifier) &&
             $0.normalizedCountry == normalizedCountry
-        }) {
-            return alias.item
         }
-
-        return nil
+        return aliasMatches.count == 1 ? aliasMatches.first?.item : nil
     }
 
     func canonicalIdentityForStoredCity(
@@ -305,26 +325,13 @@ final class CitySearchProvider {
         timeZoneIdentifier: String
     ) -> String? {
         let normalizedCity = Self.normalize(city)
-        let normalizedTimeZone = Self.normalize(timeZoneIdentifier)
 
-        let exactMatches = indexedLocalItems.filter {
+        let exactMatches = legacyIndexedLocalItems.filter {
             $0.normalizedCity == normalizedCity &&
-            $0.normalizedTimeZone == normalizedTimeZone &&
+            CityTimeZoneCompatibility.matches($0.item.timeZoneIdentifier, timeZoneIdentifier) &&
             $0.item.specialReferenceKind == nil
         }
-        if let exact = exactMatches.first {
-            return exact.item.canonicalIdentity
-        }
-
-        let cityOnlyMatches = indexedLocalItems.filter {
-            $0.normalizedCity == normalizedCity &&
-            $0.item.specialReferenceKind == nil
-        }
-        if cityOnlyMatches.count == 1, let match = cityOnlyMatches.first {
-            return match.item.canonicalIdentity
-        }
-
-        return nil
+        return exactMatches.count == 1 ? exactMatches.first?.item.canonicalIdentity : nil
     }
 
     private func mapKitFallbackResults(
@@ -351,31 +358,8 @@ final class CitySearchProvider {
         var candidates: [(rank: Int, item: CitySearchItem)] = []
 
         for mapItem in response.mapItems {
-            guard CLLocationCoordinate2DIsValid(mapItem.location.coordinate) else { continue }
-
-            let city = Self.cityName(from: mapItem)
-            guard !city.isEmpty else { continue }
-
-            let country = Self.countryName(from: mapItem)
-            guard !country.isEmpty else { continue }
-
-            var timeZoneID = mapItem.timeZone?.identifier
-            if timeZoneID == nil {
-                let key = Self.cityCountryKey(city: Self.normalize(city), country: Self.normalize(country))
-                timeZoneID = cityCountryToTimeZone[key]
-            }
-            guard let timeZoneIdentifier = timeZoneID, !timeZoneIdentifier.isEmpty else { continue }
-
-            let item = CitySearchItem(
-                id: "mapkit-\(Self.normalize(city))|\(Self.normalize(country))|\(timeZoneIdentifier)",
-                city: city,
-                country: country,
-                timeZoneIdentifier: timeZoneIdentifier,
-                aliases: [],
-                geographicalEvidence: Self.geographicalEvidence(from: mapItem)
-            )
-
-            let rank = Self.fallbackRank(city: Self.normalize(city), country: Self.normalize(country), query: normalizedQuery)
+            guard let item = citySearchItem(from: mapItem, idPrefix: "mapkit", matching: query) else { continue }
+            let rank = Self.fallbackRank(city: Self.normalize(item.city), country: Self.normalize(item.country), query: normalizedQuery)
             candidates.append((rank, item))
         }
 
@@ -404,11 +388,13 @@ final class CitySearchProvider {
         }
     }
 
-    private func citySearchItem(from mapItem: MKMapItem, idPrefix: String) -> CitySearchItem? {
+    private func citySearchItem(from mapItem: MKMapItem, idPrefix: String,
+                               matching query: String? = nil) -> CitySearchItem? {
         guard CLLocationCoordinate2DIsValid(mapItem.location.coordinate) else { return nil }
 
         let city = Self.cityName(from: mapItem)
         guard !city.isEmpty else { return nil }
+        if let query, !isRelevantCity(city, to: query) { return nil }
 
         let country = Self.countryName(from: mapItem)
         guard !country.isEmpty else { return nil }
@@ -428,6 +414,24 @@ final class CitySearchProvider {
             aliases: [],
             geographicalEvidence: Self.geographicalEvidence(from: mapItem)
         )
+    }
+
+    // Request eligibility only: these are the address fields accepted before
+    // city-level validation. Discarding such a match must not add a direct request;
+    // genuinely malformed/empty resolution retains the existing direct fallback.
+    private func hasResolvableAddress(_ mapItem: MKMapItem) -> Bool {
+        guard CLLocationCoordinate2DIsValid(mapItem.location.coordinate) else { return false }
+        let candidates = [mapItem.addressRepresentations?.cityName,
+                          Self.firstAddressComponent(from: mapItem.addressRepresentations?.cityWithContext),
+                          Self.firstAddressComponent(from: mapItem.address?.shortAddress),
+                          Self.firstAddressComponent(from: mapItem.address?.fullAddress)]
+        guard let city = candidates.compactMap({ $0?.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .first(where: { !$0.isEmpty && !$0.contains(where: { $0.isNumber }) }) else { return false }
+        let country = Self.countryName(from: mapItem)
+        guard !country.isEmpty else { return false }
+        let key = Self.cityCountryKey(city: Self.normalize(city), country: Self.normalize(country))
+        let zone = mapItem.timeZone?.identifier ?? cityCountryToTimeZone[key]
+        return !(zone?.isEmpty ?? true)
     }
 
     private static func geographicalEvidence(from mapItem: MKMapItem) -> CitySearchItem.GeographicalEvidence {
@@ -485,21 +489,63 @@ final class CitySearchProvider {
     }
 
     private static func cityName(from mapItem: MKMapItem) -> String {
-        let candidates: [String?] = [
-            mapItem.addressRepresentations?.cityName,
-            firstAddressComponent(from: mapItem.addressRepresentations?.cityWithContext),
-            firstAddressComponent(from: mapItem.address?.shortAddress),
-            firstAddressComponent(from: mapItem.address?.fullAddress)
-        ]
+        guard mapItem.pointOfInterestCategory == nil else { return "" }
+        let placemark = mapItem.placemark
+        let name = firstAddressComponent(from: mapItem.name)
+        let normalizedName = normalize(name)
+        // A locality inherited by a road, numbered address or body of water is
+        // not the matched settlement. Water metadata alone can also accompany
+        // coastal cities, so reject a named water feature, not every wet anchor.
+        let featureNames = [placemark.thoroughfare, placemark.inlandWater, placemark.ocean]
+            .compactMap { $0 }.map(normalize).filter { !$0.isEmpty }
+        if !normalizedName.isEmpty && featureNames.contains(normalizedName) { return "" }
+        if !(placemark.subThoroughfare?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true) { return "" }
+        if name.isEmpty && !(placemark.thoroughfare?.isEmpty ?? true) { return "" }
 
-        for candidate in candidates {
-            let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !value.isEmpty else { continue }
-            if value.contains(where: { $0.isNumber }) { continue }
-            return value
+        let locality = firstAddressComponent(from: placemark.locality)
+        let sublocality = firstAddressComponent(from: placemark.subLocality)
+        let settlementNames = Set([locality, sublocality].filter { !$0.isEmpty }.map(normalize))
+        let representedCity = firstAddressComponent(from: mapItem.addressRepresentations?.cityName)
+        let context = mapItem.addressRepresentations?.cityWithContext(.full) ?? ""
+        let contextName = firstAddressComponent(from: context)
+        let hasCityContext = !context.isEmpty && !contextName.isEmpty &&
+            normalize(context) == normalize(mapItem.address?.fullAddress ?? "")
+        let administrativeNames = Set([placemark.administrativeArea, placemark.subAdministrativeArea]
+            .compactMap { $0 }.map(normalize).filter { !$0.isEmpty })
+        if settlementNames.isEmpty && !normalizedName.isEmpty &&
+            administrativeNames.contains(normalizedName) { return "" }
+
+        // A sublocality may be a legitimate village/barangay, while the locality
+        // is its containing municipality. Prefer the corroborated matched name.
+        if !name.isEmpty {
+            if settlementNames.contains(normalizedName) { return name }
+            if !settlementNames.isEmpty && normalize(representedCity) == normalizedName { return name }
+            if hasCityContext && normalize(contextName) == normalizedName { return name }
+            return ""
         }
-
+        // Missing original-name evidence must still have a corroborated locality;
+        // administrative areas and free-form address components are not cities.
+        if settlementNames.contains(normalize(representedCity)) { return representedCity }
         return ""
+    }
+
+    private func isRelevantCity(_ city: String, to query: String) -> Bool {
+        let normalizedCity = Self.normalize(city)
+        let normalizedQuery = Self.normalize(query)
+        var queryNames: Set<String> = [normalizedQuery]
+        var hasCatalogMatch = false
+        for indexed in indexedLocalItems where indexed.normalizedCity == normalizedQuery ||
+            indexed.normalizedAliases.contains(normalizedQuery) {
+            hasCatalogMatch = true
+            queryNames.insert(indexed.normalizedCity)
+            queryNames.formUnion(indexed.normalizedAliases)
+        }
+        if queryNames.contains(where: { !$0.isEmpty && normalizedCity.contains($0) }) { return true }
+        // MapKit does not expose alias metadata for every remote town, and its
+        // highlight ranges can be empty for genuine transliterations. Preserve
+        // unknown-town linguistic matching after cityName has corroborated the
+        // actual matched settlement, rather than inheriting a containing locality.
+        return !hasCatalogMatch
     }
 
     private static func countryName(from mapItem: MKMapItem) -> String {

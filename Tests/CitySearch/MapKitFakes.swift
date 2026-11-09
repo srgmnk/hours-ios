@@ -22,7 +22,7 @@ struct FakeResultType: OptionSet { let rawValue: Int; static let address = Self(
     }
     func fail() { queuedDelegate?.completer(self, didFailWithError: CancellationError()) }
 }
-struct MKLocalSearchCompletion { let title: String }
+struct MKLocalSearchCompletion { let title: String; var subtitle: String = "" }
 struct FakeCoordinate { var latitude = 1.0; var longitude = 1.0 }
 func CLLocationCoordinate2DIsValid(_ c: FakeCoordinate) -> Bool { c.latitude.isFinite && c.longitude.isFinite && abs(c.latitude) <= 90 && abs(c.longitude) <= 180 }
 struct FakeLocation { var coordinate = FakeCoordinate() }
@@ -33,10 +33,23 @@ struct FakeRepresentations {
     var region: Locale.Region? = nil
     var fullContext: String? = nil
     var regionName: String?
-    var cityWithContext: String? { cityName }
+    var context: String? = nil
+    var cityWithContext: String? { context ?? cityName }
     func cityWithContext(_ style: Style) -> String? { fullContext ?? regionName }
 }
 struct FakeIdentifier: Hashable { var rawValue: String }
+struct FakePlacemark {
+    var locality: String? = nil
+    var administrativeArea: String? = nil
+    var subAdministrativeArea: String? = nil
+    var subLocality: String? = nil
+    var country: String? = nil
+    var isoCountryCode: String? = nil
+    var thoroughfare: String? = nil
+    var subThoroughfare: String? = nil
+    var inlandWater: String? = nil
+    var ocean: String? = nil
+}
 struct MKMapItem {
     var identifier: FakeIdentifier? = nil
     var alternateIdentifiers: Set<FakeIdentifier> = []
@@ -46,9 +59,11 @@ struct MKMapItem {
     var timeZone: TimeZone? = TimeZone(identifier: "America/New_York")
     var address: FakeAddress? = nil
     var addressRepresentations: FakeRepresentations?
+    var placemark = FakePlacemark()
     init(_ city: String, country: String = "United States", zone: String = "America/New_York") {
         addressRepresentations = FakeRepresentations(cityName: city, regionName: country)
         timeZone = TimeZone(identifier: zone)
+        placemark = FakePlacemark(locality: city, country: country)
     }
 }
 @MainActor final class MKLocalSearch {

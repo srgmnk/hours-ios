@@ -1,0 +1,490 @@
+{
+  "provenance": "Actual MapKit responses captured on macOS 27.0.1 on 2026-11-08 through the unmodified pre-fix provider during this investigation; locale en_RU, actual network. Not a physical-iPhone or mainland-China capture. Source response-array SHA-256: 40a3ebdf3a874600a199ad7310d02504a1d9e3b05d157c301282f6d52fd4691f",
+  "queries": [
+    {
+      "query": "Brixham",
+      "completions": [
+        {
+          "title": "",
+          "subtitle": "",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Brixham, Torbay",
+              "cityWithContext": "Brixham, Torbay, England",
+              "countryCode": "GB",
+              "countryName": "United Kingdom",
+              "fullAddress": "Brixham, Torbay, England",
+              "fullCityContext": "Brixham, Torbay, England",
+              "identifier": null,
+              "latitude": 50.3941241,
+              "longitude": -3.5159137,
+              "name": "Brixham",
+              "placemark": {
+                "administrativeArea": "England",
+                "areasOfInterest": [],
+                "country": "United Kingdom",
+                "inlandWater": null,
+                "isoCountryCode": "GB",
+                "locality": "Brixham",
+                "ocean": null,
+                "subAdministrativeArea": "Torbay",
+                "subLocality": "Brixham",
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Brixham, Torbay",
+              "timeZone": "Europe/London"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Uglich",
+      "completions": [
+        {
+          "title": "Uglich",
+          "subtitle": "Yaroslavl Oblast, Russia",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Uglich",
+              "cityWithContext": "Uglich, Yaroslavl Oblast, Russia",
+              "countryCode": "RU",
+              "countryName": "Russia",
+              "fullAddress": "Uglich, Yaroslavl Oblast, Russia",
+              "fullCityContext": "Uglich, Yaroslavl Oblast, Russia",
+              "identifier": null,
+              "latitude": 57.5263021,
+              "longitude": 38.3173425,
+              "name": "Uglich",
+              "placemark": {
+                "administrativeArea": "Yaroslavl Oblast",
+                "areasOfInterest": [],
+                "country": "Russia",
+                "inlandWater": null,
+                "isoCountryCode": "RU",
+                "locality": "Uglich",
+                "ocean": null,
+                "subAdministrativeArea": "Uglichsky District",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Uglich",
+              "timeZone": "Europe/Moscow"
+            }
+          ]
+        },
+        {
+          "title": "Uglichapada, Bhiwandi",
+          "subtitle": "Thane, Maharashtra, India",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Thane",
+              "cityWithContext": "",
+              "countryCode": "IN",
+              "countryName": "India",
+              "fullAddress": "Uglichapada, Bhiwandi, Thane, 421302, Maharashtra, India",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": 19.341758,
+              "longitude": 73.067031,
+              "name": "Uglichapada",
+              "placemark": {
+                "administrativeArea": "Maharashtra",
+                "areasOfInterest": [],
+                "country": "India",
+                "inlandWater": null,
+                "isoCountryCode": "IN",
+                "locality": "Thane",
+                "ocean": null,
+                "subAdministrativeArea": "Thane",
+                "subLocality": "Uglichapada",
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Uglichapada, Bhiwandi, Thane",
+              "timeZone": "Asia/Kolkata"
+            }
+          ]
+        },
+        {
+          "title": "Gorodskoye Poseleniye Uglich",
+          "subtitle": "Uglichsky District, Yaroslavl Oblast, Russia",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Городское Поселение Углич",
+              "cityWithContext": "",
+              "countryCode": "RU",
+              "countryName": "Russia",
+              "fullAddress": "Городское Поселение Углич, Uglichsky District, Yaroslavl Oblast, Russia",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": 57.5190622,
+              "longitude": 38.3093548,
+              "name": "Городское Поселение Углич",
+              "placemark": {
+                "administrativeArea": "Yaroslavl Oblast",
+                "areasOfInterest": [],
+                "country": "Russia",
+                "inlandWater": null,
+                "isoCountryCode": "RU",
+                "locality": null,
+                "ocean": null,
+                "subAdministrativeArea": "Городское Поселение Углич",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Городское Поселение Углич, Uglichsky District, Yaroslavl Oblast, Russia",
+              "timeZone": "Europe/Moscow"
+            }
+          ]
+        },
+        {
+          "title": "D Uglichi",
+          "subtitle": "Tarussky District, Kaluga Oblast, Russia",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "деревня Угличи",
+              "cityWithContext": "деревня Угличи, Tarussky District, Kaluga Oblast, Russia",
+              "countryCode": "RU",
+              "countryName": "Russia",
+              "fullAddress": "деревня Угличи, Tarussky District, Kaluga Oblast, Russia",
+              "fullCityContext": "деревня Угличи, Tarussky District, Kaluga Oblast, Russia",
+              "identifier": null,
+              "latitude": 54.8189442,
+              "longitude": 37.1554358,
+              "name": "деревня Угличи",
+              "placemark": {
+                "administrativeArea": "Kaluga Oblast",
+                "areasOfInterest": [],
+                "country": "Russia",
+                "inlandWater": null,
+                "isoCountryCode": "RU",
+                "locality": "деревня Угличи",
+                "ocean": null,
+                "subAdministrativeArea": "Tarussky District",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "деревня Угличи, Tarussky District",
+              "timeZone": "Europe/Moscow"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Totnes",
+      "completions": [
+        {
+          "title": "Totnes",
+          "subtitle": "South Hams, England",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Totnes, South Hams",
+              "cityWithContext": "",
+              "countryCode": "GB",
+              "countryName": "United Kingdom",
+              "fullAddress": "Totnes, South Hams, England",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": 50.4321794,
+              "longitude": -3.6881412,
+              "name": "Totnes",
+              "placemark": {
+                "administrativeArea": "England",
+                "areasOfInterest": [],
+                "country": "United Kingdom",
+                "inlandWater": null,
+                "isoCountryCode": "GB",
+                "locality": "Totnes",
+                "ocean": null,
+                "subAdministrativeArea": "Devon",
+                "subLocality": "Totnes",
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Totnes, South Hams",
+              "timeZone": "Europe/London"
+            }
+          ]
+        },
+        {
+          "title": "Totnes",
+          "subtitle": "England",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "England",
+              "cityWithContext": "Totnes, England",
+              "countryCode": "GB",
+              "countryName": "United Kingdom",
+              "fullAddress": "Totnes, England",
+              "fullCityContext": "Totnes, England",
+              "identifier": null,
+              "latitude": 50.4352299,
+              "longitude": -3.6915716,
+              "name": "Totnes",
+              "placemark": {
+                "administrativeArea": "England",
+                "areasOfInterest": [],
+                "country": "United Kingdom",
+                "inlandWater": null,
+                "isoCountryCode": "GB",
+                "locality": null,
+                "ocean": null,
+                "subAdministrativeArea": "Totnes",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Totnes, England",
+              "timeZone": "Europe/London"
+            }
+          ]
+        },
+        {
+          "title": "Totness, SA",
+          "subtitle": "Australia",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Totness",
+              "cityWithContext": "",
+              "countryCode": "AU",
+              "countryName": "Australia",
+              "fullAddress": "Totness SA 5250, Australia",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": -35.0542645,
+              "longitude": 138.8514395,
+              "name": "Totness",
+              "placemark": {
+                "administrativeArea": "SA",
+                "areasOfInterest": [],
+                "country": "Australia",
+                "inlandWater": null,
+                "isoCountryCode": "AU",
+                "locality": "Totness",
+                "ocean": null,
+                "subAdministrativeArea": "Mount Barker District Council",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Totness 5250",
+              "timeZone": "Australia/Adelaide"
+            }
+          ]
+        },
+        {
+          "title": "Totness",
+          "subtitle": "Welgelegen, Coronie, Suriname",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Welgelegen",
+              "cityWithContext": "Welgelegen, Coronie, Suriname",
+              "countryCode": "SR",
+              "countryName": "Suriname",
+              "fullAddress": "Totness, Welgelegen, Coronie, Suriname",
+              "fullCityContext": "Welgelegen, Coronie, Suriname",
+              "identifier": null,
+              "latitude": 5.88357,
+              "longitude": -56.316298,
+              "name": "Totness",
+              "placemark": {
+                "administrativeArea": "Coronie",
+                "areasOfInterest": [],
+                "country": "Suriname",
+                "inlandWater": null,
+                "isoCountryCode": "SR",
+                "locality": "Welgelegen",
+                "ocean": null,
+                "subAdministrativeArea": null,
+                "subLocality": "Totness",
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Welgelegen",
+              "timeZone": "America/Paramaribo"
+            }
+          ]
+        },
+        {
+          "title": "Totnes Valley, NSW",
+          "subtitle": "Australia",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Totnes Valley",
+              "cityWithContext": "",
+              "countryCode": "AU",
+              "countryName": "Australia",
+              "fullAddress": "Totnes Valley NSW 2850, Australia",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": -32.4856749,
+              "longitude": 149.922193,
+              "name": "Totnes Valley",
+              "placemark": {
+                "administrativeArea": "NSW",
+                "areasOfInterest": [],
+                "country": "Australia",
+                "inlandWater": null,
+                "isoCountryCode": "AU",
+                "locality": "Totnes Valley",
+                "ocean": null,
+                "subAdministrativeArea": "Mid-Western Regional Council",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Totnes Valley 2850",
+              "timeZone": "Australia/Sydney"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Qingyuan",
+      "completions": [
+        {
+          "title": "",
+          "subtitle": "",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Qingyuan",
+              "cityWithContext": "Qingyuan, Guangdong, China",
+              "countryCode": "CN",
+              "countryName": "China",
+              "fullAddress": "Qingyuan, Guangdong, China",
+              "fullCityContext": "Qingyuan, Guangdong, China",
+              "identifier": null,
+              "latitude": 23.6904885,
+              "longitude": 113.0463228,
+              "name": "Qingyuan",
+              "placemark": {
+                "administrativeArea": "Guangdong",
+                "areasOfInterest": [],
+                "country": "China",
+                "inlandWater": null,
+                "isoCountryCode": "CN",
+                "locality": "Qingyuan",
+                "ocean": null,
+                "subAdministrativeArea": null,
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Qingyuan",
+              "timeZone": "Asia/Shanghai"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "清远",
+      "completions": [
+        {
+          "title": "Qingyuan, Guangdong",
+          "subtitle": "China",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Qingyuan",
+              "cityWithContext": "Qingyuan, Guangdong, China",
+              "countryCode": "CN",
+              "countryName": "China",
+              "fullAddress": "Qingyuan, Guangdong, China",
+              "fullCityContext": "Qingyuan, Guangdong, China",
+              "identifier": null,
+              "latitude": 23.6904885,
+              "longitude": 113.0463228,
+              "name": "Qingyuan",
+              "placemark": {
+                "administrativeArea": "Guangdong",
+                "areasOfInterest": [],
+                "country": "China",
+                "inlandWater": null,
+                "isoCountryCode": "CN",
+                "locality": "Qingyuan",
+                "ocean": null,
+                "subAdministrativeArea": null,
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Qingyuan",
+              "timeZone": "Asia/Shanghai"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Cambridge",
+      "completions": [
+        {
+          "title": "",
+          "subtitle": "",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Cambridge",
+              "cityWithContext": "Cambridge, England",
+              "countryCode": "GB",
+              "countryName": "United Kingdom",
+              "fullAddress": "Cambridge, England",
+              "fullCityContext": "Cambridge, England",
+              "identifier": null,
+              "latitude": 52.2021717,
+              "longitude": 0.1248301,
+              "name": "Cambridge",
+              "placemark": {
+                "administrativeArea": "England",
+                "areasOfInterest": [],
+                "country": "United Kingdom",
+                "inlandWater": null,
+                "isoCountryCode": "GB",
+                "locality": "Cambridge",
+                "ocean": null,
+                "subAdministrativeArea": "Cambridgeshire",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Cambridge",
+              "timeZone": "Europe/London"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

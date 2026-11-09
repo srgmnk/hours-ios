@@ -1,0 +1,66 @@
+Hours city data attribution
+
+City data © GeoNames, https://www.geonames.org/
+Licensed under Creative Commons Attribution 4.0 International (CC BY 4.0):
+https://creativecommons.org/licenses/by/4.0/
+Legal code: https://creativecommons.org/licenses/by/4.0/legalcode.en
+
+Snapshot: official GeoNames daily files downloaded on 2026-11-08.
+Source downloads: https://download.geonames.org/export/dump/
+Source schema and license statement:
+https://download.geonames.org/export/dump/readme.txt
+
+Selected, formatted and adapted by Hours. The catalog contains 3,000 selected
+cities, including the 152 original Hours entries, and uses policy-based name and
+alias selection plus documented editorial overrides. Existing Hours identities
+and approved coordinate exceptions were retained. No endorsement is implied.
+
+The city data remains licensed under CC BY 4.0 separately from the Hours app.
+The app's Terms of Use do not restrict your rights under this data license.
+GeoNames provides the data "as is", without warranty or any representation of
+accuracy, timeliness or completeness.
+
+Original coordinate exceptions include public-domain Natural Earth and
+UNGEGN/NGA GNS references retained from the reviewed Hours catalog.
+Natural Earth: https://www.naturalearthdata.com/about/terms-of-use/
+
+Approved bundled city catalog SHA-256:
+71ffe91b07ef92789ab50e0e579a63e4008b168cb91d4670bac3d7a00ac4463b
+
+Pinned GeoNames source files (SHA-256; these raw archives are not bundled):
+
+admin1CodesASCII.txt
+https://download.geonames.org/export/dump/admin1CodesASCII.txt
+SHA-256: 2e4867f5397acb056ea26377601b57af37cb4c81399770225018e9e439e91ad3
+
+admin2Codes.txt
+https://download.geonames.org/export/dump/admin2Codes.txt
+SHA-256: 0015daec87ac29d9618607ba6642decada8093c07913f1983e96f932f5ce94f2
+
+alternateNamesV2.zip
+https://download.geonames.org/export/dump/alternateNamesV2.zip
+SHA-256: 75703cd2ed918ce38bf78ab50c7d7a93cba7f077325feefbd1df95e0474c3f7e
+
+cities1000.zip
+https://download.geonames.org/export/dump/cities1000.zip
+SHA-256: 3192bafad68d096c4112d9d4c09651cddf4752194a673803c3cd3b1052d57f9d
+
+cities15000.zip
+https://download.geonames.org/export/dump/cities15000.zip
+SHA-256: 222e3bc0f66f821ae87838376a94361f4a109dbcd668d8cb426a696697b270e8
+
+countryInfo.txt
+https://download.geonames.org/export/dump/countryInfo.txt
+SHA-256: 79f8f59ea01cbb40438bf1856dd6c2ff201f03f8fc72d0530b2646aaf603ef04
+
+iso-languagecodes.txt
+https://download.geonames.org/export/dump/iso-languagecodes.txt
+SHA-256: cb0d34f492775deec8ec5713da6efa4463dad99b5e7ba2172bd094cfdcb76571
+
+readme.txt
+https://download.geonames.org/export/dump/readme.txt
+SHA-256: b1957379b6c1242c700c98ac9a8aa0a09f56c3c0a50ee72175527005f48ef2c5
+
+timeZones.txt
+https://download.geonames.org/export/dump/timeZones.txt
+SHA-256: efa95af085ea8a6d41f876c64649f6e38feda01b1e6f612d5765067f50114de2

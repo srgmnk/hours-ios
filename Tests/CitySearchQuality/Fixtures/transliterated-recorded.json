@@ -1,0 +1,80 @@
+{
+  "provenance": "Actual MapKit responses captured for the zero-local Cyrillic query Углич on macOS 27.0.1 on 2026-11-08 during this investigation. Candidate Uglich has empty title and subtitle highlight ranges; neither highlight nor a local catalog alias is available. Not a physical-iPhone or mainland-China capture. Source response-array SHA-256: 4c068bc48cde87afe62959b863643a7076a2c9b81950c3fbdc1ab5ce814e2c92",
+  "queries": [
+    {
+      "query": "Углич",
+      "completions": [
+        {
+          "title": "Uglich",
+          "subtitle": "Yaroslavl Oblast, Russia",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Uglich",
+              "cityWithContext": "Uglich, Yaroslavl Oblast, Russia",
+              "countryCode": "RU",
+              "countryName": "Russia",
+              "fullAddress": "Uglich, Yaroslavl Oblast, Russia",
+              "fullCityContext": "Uglich, Yaroslavl Oblast, Russia",
+              "identifier": null,
+              "latitude": 57.5263021,
+              "longitude": 38.3173425,
+              "name": "Uglich",
+              "placemark": {
+                "administrativeArea": "Yaroslavl Oblast",
+                "areasOfInterest": [],
+                "country": "Russia",
+                "inlandWater": null,
+                "isoCountryCode": "RU",
+                "locality": "Uglich",
+                "ocean": null,
+                "subAdministrativeArea": "Uglichsky District",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Uglich",
+              "timeZone": "Europe/Moscow"
+            }
+          ]
+        },
+        {
+          "title": "Gorodskoye Poseleniye Uglich",
+          "subtitle": "Uglichsky District, Yaroslavl Oblast, Russia",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Городское Поселение Углич",
+              "cityWithContext": "",
+              "countryCode": "RU",
+              "countryName": "Russia",
+              "fullAddress": "Городское Поселение Углич, Uglichsky District, Yaroslavl Oblast, Russia",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": 57.5190622,
+              "longitude": 38.3093548,
+              "name": "Городское Поселение Углич",
+              "placemark": {
+                "administrativeArea": "Yaroslavl Oblast",
+                "areasOfInterest": [],
+                "country": "Russia",
+                "inlandWater": null,
+                "isoCountryCode": "RU",
+                "locality": null,
+                "ocean": null,
+                "subAdministrativeArea": "Городское Поселение Углич",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Городское Поселение Углич, Uglichsky District, Yaroslavl Oblast, Russia",
+              "timeZone": "Europe/Moscow"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

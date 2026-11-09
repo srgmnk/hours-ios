@@ -12,9 +12,13 @@ struct LegalDocumentSheet: View {
                 SheetStyle.appScreenBackground(for: theme)
                     .ignoresSafeArea()
 
-                LegalWebView(url: document.url(for: theme))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(Color.clear)
+                if document == .dataAttribution {
+                    CityDataAttributionView()
+                } else if let url = document.url(for: theme) {
+                    LegalWebView(url: url)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(Color.clear)
+                }
             }
             .navigationTitle(document.title)
             .navigationBarTitleDisplayMode(.inline)

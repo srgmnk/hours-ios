@@ -1,0 +1,1066 @@
+[
+  {
+    "id": "catalog:abu-dhabi-ae",
+    "catalog_id": "abu-dhabi-ae",
+    "canonical_id": "city:abu-dhabi|country:united-arab-emirates|tz:asia-dubai",
+    "latitude": 24.45118,
+    "longitude": 54.39696
+  },
+  {
+    "id": "catalog:accra-gh",
+    "catalog_id": "accra-gh",
+    "canonical_id": "city:accra|country:ghana|tz:africa-accra",
+    "latitude": 5.55602,
+    "longitude": -0.1969
+  },
+  {
+    "id": "catalog:addis-ababa-et",
+    "catalog_id": "addis-ababa-et",
+    "canonical_id": "city:addis-ababa|country:ethiopia|tz:africa-addis_ababa",
+    "latitude": 9.02497,
+    "longitude": 38.74689
+  },
+  {
+    "id": "catalog:adelaide-au",
+    "catalog_id": "adelaide-au",
+    "canonical_id": "city:adelaide|country:australia|tz:australia-adelaide",
+    "latitude": -34.92866,
+    "longitude": 138.59863
+  },
+  {
+    "id": "catalog:algiers-dz",
+    "catalog_id": "algiers-dz",
+    "canonical_id": "city:algiers|country:algeria|tz:africa-algiers",
+    "latitude": 36.73225,
+    "longitude": 3.08746
+  },
+  {
+    "id": "catalog:almaty-kz",
+    "catalog_id": "almaty-kz",
+    "canonical_id": "city:almaty|country:kazakhstan|tz:asia-almaty",
+    "latitude": 43.25249,
+    "longitude": 76.9115
+  },
+  {
+    "id": "catalog:amman-jo",
+    "catalog_id": "amman-jo",
+    "canonical_id": "city:amman|country:jordan|tz:asia-amman",
+    "latitude": 31.95522,
+    "longitude": 35.94503
+  },
+  {
+    "id": "catalog:amsterdam-nl",
+    "catalog_id": "amsterdam-nl",
+    "canonical_id": "city:amsterdam|country:netherlands|tz:europe-amsterdam",
+    "latitude": 52.37403,
+    "longitude": 4.88969
+  },
+  {
+    "id": "catalog:ankara-tr",
+    "catalog_id": "ankara-tr",
+    "canonical_id": "city:ankara|country:turkey|tz:europe-istanbul",
+    "latitude": 39.91987,
+    "longitude": 32.85427
+  },
+  {
+    "id": "catalog:astana-kz",
+    "catalog_id": "astana-kz",
+    "canonical_id": "city:astana|country:kazakhstan|tz:asia-almaty",
+    "latitude": 51.1801,
+    "longitude": 71.44598
+  },
+  {
+    "id": "catalog:asuncion-py",
+    "catalog_id": "asuncion-py",
+    "canonical_id": "city:asuncion|country:paraguay|tz:america-asuncion",
+    "latitude": -25.28646,
+    "longitude": -57.647
+  },
+  {
+    "id": "catalog:athens-gr",
+    "catalog_id": "athens-gr",
+    "canonical_id": "city:athens|country:greece|tz:europe-athens",
+    "latitude": 37.98376,
+    "longitude": 23.72784
+  },
+  {
+    "id": "catalog:atlanta-us",
+    "catalog_id": "atlanta-us",
+    "canonical_id": "city:atlanta|country:united-states|tz:america-new_york",
+    "latitude": 33.749,
+    "longitude": -84.38798
+  },
+  {
+    "id": "catalog:auckland-nz",
+    "catalog_id": "auckland-nz",
+    "canonical_id": "city:auckland|country:new-zealand|tz:pacific-auckland",
+    "latitude": -36.84853,
+    "longitude": 174.76349
+  },
+  {
+    "id": "catalog:baghdad-iq",
+    "catalog_id": "baghdad-iq",
+    "canonical_id": "city:baghdad|country:iraq|tz:asia-baghdad",
+    "latitude": 33.34058,
+    "longitude": 44.40088
+  },
+  {
+    "id": "catalog:baku-az",
+    "catalog_id": "baku-az",
+    "canonical_id": "city:baku|country:azerbaijan|tz:asia-baku",
+    "latitude": 40.37767,
+    "longitude": 49.89201
+  },
+  {
+    "id": "catalog:bangkok-th",
+    "catalog_id": "bangkok-th",
+    "canonical_id": "city:bangkok|country:thailand|tz:asia-bangkok",
+    "latitude": 13.75398,
+    "longitude": 100.50144
+  },
+  {
+    "id": "catalog:barcelona-es",
+    "catalog_id": "barcelona-es",
+    "canonical_id": "city:barcelona|country:spain|tz:europe-madrid",
+    "latitude": 41.38879,
+    "longitude": 2.15899
+  },
+  {
+    "id": "catalog:beijing-cn",
+    "catalog_id": "beijing-cn",
+    "canonical_id": "city:beijing|country:china|tz:asia-shanghai",
+    "latitude": 39.9075,
+    "longitude": 116.39723
+  },
+  {
+    "id": "catalog:beirut-lb",
+    "catalog_id": "beirut-lb",
+    "canonical_id": "city:beirut|country:lebanon|tz:asia-beirut",
+    "latitude": 33.89332,
+    "longitude": 35.50157
+  },
+  {
+    "id": "catalog:bengaluru-in",
+    "catalog_id": "bengaluru-in",
+    "canonical_id": "city:bengaluru|country:india|tz:asia-kolkata",
+    "latitude": 12.97194,
+    "longitude": 77.59369
+  },
+  {
+    "id": "catalog:berlin-de",
+    "catalog_id": "berlin-de",
+    "canonical_id": "city:berlin|country:germany|tz:europe-berlin",
+    "latitude": 52.52437,
+    "longitude": 13.41053
+  },
+  {
+    "id": "catalog:bishkek-kg",
+    "catalog_id": "bishkek-kg",
+    "canonical_id": "city:bishkek|country:kyrgyzstan|tz:asia-bishkek",
+    "latitude": 42.87,
+    "longitude": 74.59
+  },
+  {
+    "id": "catalog:bogota-co",
+    "catalog_id": "bogota-co",
+    "canonical_id": "city:bogota|country:colombia|tz:america-bogota",
+    "latitude": 4.60971,
+    "longitude": -74.08175
+  },
+  {
+    "id": "catalog:boston-us",
+    "catalog_id": "boston-us",
+    "canonical_id": "city:boston|country:united-states|tz:america-new_york",
+    "latitude": 42.35843,
+    "longitude": -71.05977
+  },
+  {
+    "id": "catalog:brasilia-br",
+    "catalog_id": "brasilia-br",
+    "canonical_id": "city:brasilia|country:brazil|tz:america-sao_paulo",
+    "latitude": -15.77972,
+    "longitude": -47.92972
+  },
+  {
+    "id": "catalog:brisbane-au",
+    "catalog_id": "brisbane-au",
+    "canonical_id": "city:brisbane|country:australia|tz:australia-brisbane",
+    "latitude": -27.46794,
+    "longitude": 153.02809
+  },
+  {
+    "id": "catalog:brussels-be",
+    "catalog_id": "brussels-be",
+    "canonical_id": "city:brussels|country:belgium|tz:europe-brussels",
+    "latitude": 50.85045,
+    "longitude": 4.34878
+  },
+  {
+    "id": "catalog:bucharest-ro",
+    "catalog_id": "bucharest-ro",
+    "canonical_id": "city:bucharest|country:romania|tz:europe-bucharest",
+    "latitude": 44.43225,
+    "longitude": 26.10626
+  },
+  {
+    "id": "catalog:budapest-hu",
+    "catalog_id": "budapest-hu",
+    "canonical_id": "city:budapest|country:hungary|tz:europe-budapest",
+    "latitude": 47.49835,
+    "longitude": 19.04045
+  },
+  {
+    "id": "catalog:buenos-aires-ar",
+    "catalog_id": "buenos-aires-ar",
+    "canonical_id": "city:buenos-aires|country:argentina|tz:america-argentina-buenos_aires",
+    "latitude": -34.61315,
+    "longitude": -58.37723
+  },
+  {
+    "id": "catalog:busan-kr",
+    "catalog_id": "busan-kr",
+    "canonical_id": "city:busan|country:south-korea|tz:asia-seoul",
+    "latitude": 35.10168,
+    "longitude": 129.03004
+  },
+  {
+    "id": "catalog:cairo-eg",
+    "catalog_id": "cairo-eg",
+    "canonical_id": "city:cairo|country:egypt|tz:africa-cairo",
+    "latitude": 30.06263,
+    "longitude": 31.24967
+  },
+  {
+    "id": "catalog:calgary-ca",
+    "catalog_id": "calgary-ca",
+    "canonical_id": "city:calgary|country:canada|tz:america-edmonton",
+    "latitude": 51.05011,
+    "longitude": -114.08529
+  },
+  {
+    "id": "catalog:cape-town-za",
+    "catalog_id": "cape-town-za",
+    "canonical_id": "city:cape-town|country:south-africa|tz:africa-johannesburg",
+    "latitude": -33.92584,
+    "longitude": 18.42322
+  },
+  {
+    "id": "catalog:caracas-ve",
+    "catalog_id": "caracas-ve",
+    "canonical_id": "city:caracas|country:venezuela|tz:america-caracas",
+    "latitude": 10.48801,
+    "longitude": -66.87919
+  },
+  {
+    "id": "catalog:casablanca-ma",
+    "catalog_id": "casablanca-ma",
+    "canonical_id": "city:casablanca|country:morocco|tz:africa-casablanca",
+    "latitude": 33.58831,
+    "longitude": -7.61138
+  },
+  {
+    "id": "catalog:cebu-ph",
+    "catalog_id": "cebu-ph",
+    "canonical_id": "city:cebu|country:philippines|tz:asia-manila",
+    "latitude": 10.31672,
+    "longitude": 123.89071
+  },
+  {
+    "id": "catalog:chennai-in",
+    "catalog_id": "chennai-in",
+    "canonical_id": "city:chennai|country:india|tz:asia-kolkata",
+    "latitude": 13.08784,
+    "longitude": 80.27847
+  },
+  {
+    "id": "catalog:chiang-mai-th",
+    "catalog_id": "chiang-mai-th",
+    "canonical_id": "city:chiang-mai|country:thailand|tz:asia-bangkok",
+    "latitude": 18.79038,
+    "longitude": 98.98468
+  },
+  {
+    "id": "catalog:chicago-us",
+    "catalog_id": "chicago-us",
+    "canonical_id": "city:chicago|country:united-states|tz:america-chicago",
+    "latitude": 41.85003,
+    "longitude": -87.65005
+  },
+  {
+    "id": "catalog:christchurch-nz",
+    "catalog_id": "christchurch-nz",
+    "canonical_id": "city:christchurch|country:new-zealand|tz:pacific-auckland",
+    "latitude": -43.53333,
+    "longitude": 172.63333
+  },
+  {
+    "id": "catalog:colombo-lk",
+    "catalog_id": "colombo-lk",
+    "canonical_id": "city:colombo|country:sri-lanka|tz:asia-colombo",
+    "latitude": 6.93548,
+    "longitude": 79.84868
+  },
+  {
+    "id": "catalog:copenhagen-dk",
+    "catalog_id": "copenhagen-dk",
+    "canonical_id": "city:copenhagen|country:denmark|tz:europe-copenhagen",
+    "latitude": 55.67594,
+    "longitude": 12.56553
+  },
+  {
+    "id": "catalog:cordoba-ar",
+    "catalog_id": "cordoba-ar",
+    "canonical_id": "city:cordoba|country:argentina|tz:america-argentina-cordoba",
+    "latitude": -31.40648,
+    "longitude": -64.18853
+  },
+  {
+    "id": "catalog:dallas-us",
+    "catalog_id": "dallas-us",
+    "canonical_id": "city:dallas|country:united-states|tz:america-chicago",
+    "latitude": 32.78306,
+    "longitude": -96.80667
+  },
+  {
+    "id": "catalog:delhi-in",
+    "catalog_id": "delhi-in",
+    "canonical_id": "city:delhi|country:india|tz:asia-kolkata",
+    "latitude": 28.65195,
+    "longitude": 77.23149
+  },
+  {
+    "id": "catalog:denver-us",
+    "catalog_id": "denver-us",
+    "canonical_id": "city:denver|country:united-states|tz:america-denver",
+    "latitude": 39.73915,
+    "longitude": -104.9847
+  },
+  {
+    "id": "catalog:dhaka-bd",
+    "catalog_id": "dhaka-bd",
+    "canonical_id": "city:dhaka|country:bangladesh|tz:asia-dhaka",
+    "latitude": 23.7104,
+    "longitude": 90.40744
+  },
+  {
+    "id": "catalog:doha-qa",
+    "catalog_id": "doha-qa",
+    "canonical_id": "city:doha|country:qatar|tz:asia-qatar",
+    "latitude": 25.28545,
+    "longitude": 51.53096
+  },
+  {
+    "id": "catalog:dubai-ae",
+    "catalog_id": "dubai-ae",
+    "canonical_id": "city:dubai|country:united-arab-emirates|tz:asia-dubai",
+    "latitude": 25.252222,
+    "longitude": 55.28
+  },
+  {
+    "id": "catalog:dublin-ie",
+    "catalog_id": "dublin-ie",
+    "canonical_id": "city:dublin|country:ireland|tz:europe-dublin",
+    "latitude": 53.33306,
+    "longitude": -6.24889
+  },
+  {
+    "id": "catalog:edinburgh-gb",
+    "catalog_id": "edinburgh-gb",
+    "canonical_id": "city:edinburgh|country:united-kingdom|tz:europe-london",
+    "latitude": 55.95206,
+    "longitude": -3.19648
+  },
+  {
+    "id": "catalog:frankfurt-de",
+    "catalog_id": "frankfurt-de",
+    "canonical_id": "city:frankfurt|country:germany|tz:europe-berlin",
+    "latitude": 50.11552,
+    "longitude": 8.68417
+  },
+  {
+    "id": "catalog:geneva-ch",
+    "catalog_id": "geneva-ch",
+    "canonical_id": "city:geneva|country:switzerland|tz:europe-zurich",
+    "latitude": 46.20222,
+    "longitude": 6.14569
+  },
+  {
+    "id": "catalog:guadalajara-mx",
+    "catalog_id": "guadalajara-mx",
+    "canonical_id": "city:guadalajara|country:mexico|tz:america-mexico_city",
+    "latitude": 20.67738,
+    "longitude": -103.34749
+  },
+  {
+    "id": "catalog:guangzhou-cn",
+    "catalog_id": "guangzhou-cn",
+    "canonical_id": "city:guangzhou|country:china|tz:asia-shanghai",
+    "latitude": 23.11667,
+    "longitude": 113.25
+  },
+  {
+    "id": "catalog:guayaquil-ec",
+    "catalog_id": "guayaquil-ec",
+    "canonical_id": "city:guayaquil|country:ecuador|tz:america-guayaquil",
+    "latitude": -2.19616,
+    "longitude": -79.88621
+  },
+  {
+    "id": "catalog:hamburg-de",
+    "catalog_id": "hamburg-de",
+    "canonical_id": "city:hamburg|country:germany|tz:europe-berlin",
+    "latitude": 53.55073,
+    "longitude": 9.99302
+  },
+  {
+    "id": "catalog:hanoi-vn",
+    "catalog_id": "hanoi-vn",
+    "canonical_id": "city:hanoi|country:vietnam|tz:asia-ho_chi_minh",
+    "latitude": 21.0245,
+    "longitude": 105.84117
+  },
+  {
+    "id": "catalog:helsinki-fi",
+    "catalog_id": "helsinki-fi",
+    "canonical_id": "city:helsinki|country:finland|tz:europe-helsinki",
+    "latitude": 60.16952,
+    "longitude": 24.93545
+  },
+  {
+    "id": "catalog:ho-chi-minh-vn",
+    "catalog_id": "ho-chi-minh-vn",
+    "canonical_id": "city:ho-chi-minh-city|country:vietnam|tz:asia-ho_chi_minh",
+    "latitude": 10.82302,
+    "longitude": 106.62965
+  },
+  {
+    "id": "catalog:hong-kong-hk",
+    "catalog_id": "hong-kong-hk",
+    "canonical_id": "city:hong-kong|country:hong-kong|tz:asia-hong_kong",
+    "latitude": 22.27832,
+    "longitude": 114.17469
+  },
+  {
+    "id": "catalog:houston-us",
+    "catalog_id": "houston-us",
+    "canonical_id": "city:houston|country:united-states|tz:america-chicago",
+    "latitude": 29.76328,
+    "longitude": -95.36327
+  },
+  {
+    "id": "catalog:hyderabad-in",
+    "catalog_id": "hyderabad-in",
+    "canonical_id": "city:hyderabad|country:india|tz:asia-kolkata",
+    "latitude": 17.38405,
+    "longitude": 78.45636
+  },
+  {
+    "id": "catalog:istanbul-tr",
+    "catalog_id": "istanbul-tr",
+    "canonical_id": "city:istanbul|country:turkey|tz:europe-istanbul",
+    "latitude": 41.01384,
+    "longitude": 28.94966
+  },
+  {
+    "id": "catalog:jakarta-id",
+    "catalog_id": "jakarta-id",
+    "canonical_id": "city:jakarta|country:indonesia|tz:asia-jakarta",
+    "latitude": -6.21462,
+    "longitude": 106.84513
+  },
+  {
+    "id": "catalog:jeddah-sa",
+    "catalog_id": "jeddah-sa",
+    "canonical_id": "city:jeddah|country:saudi-arabia|tz:asia-riyadh",
+    "latitude": 21.49012,
+    "longitude": 39.18624
+  },
+  {
+    "id": "catalog:jerusalem-il",
+    "catalog_id": "jerusalem-il",
+    "canonical_id": "city:jerusalem|country:israel|tz:asia-jerusalem",
+    "latitude": 31.76904,
+    "longitude": 35.21633
+  },
+  {
+    "id": "catalog:johannesburg-za",
+    "catalog_id": "johannesburg-za",
+    "canonical_id": "city:johannesburg|country:south-africa|tz:africa-johannesburg",
+    "latitude": -26.20227,
+    "longitude": 28.04363
+  },
+  {
+    "id": "catalog:karachi-pk",
+    "catalog_id": "karachi-pk",
+    "canonical_id": "city:karachi|country:pakistan|tz:asia-karachi",
+    "latitude": 24.8608,
+    "longitude": 67.0104
+  },
+  {
+    "id": "catalog:kathmandu-np",
+    "catalog_id": "kathmandu-np",
+    "canonical_id": "city:kathmandu|country:nepal|tz:asia-kathmandu",
+    "latitude": 27.70169,
+    "longitude": 85.3206
+  },
+  {
+    "id": "catalog:kolkata-in",
+    "catalog_id": "kolkata-in",
+    "canonical_id": "city:kolkata|country:india|tz:asia-kolkata",
+    "latitude": 22.56263,
+    "longitude": 88.36304
+  },
+  {
+    "id": "catalog:krakow-pl",
+    "catalog_id": "krakow-pl",
+    "canonical_id": "city:krakow|country:poland|tz:europe-warsaw",
+    "latitude": 50.06143,
+    "longitude": 19.93658
+  },
+  {
+    "id": "catalog:kuala-lumpur-my",
+    "catalog_id": "kuala-lumpur-my",
+    "canonical_id": "city:kuala-lumpur|country:malaysia|tz:asia-kuala_lumpur",
+    "latitude": 3.1412,
+    "longitude": 101.68653
+  },
+  {
+    "id": "catalog:kyiv-ua",
+    "catalog_id": "kyiv-ua",
+    "canonical_id": "city:kyiv|country:ukraine|tz:europe-kyiv",
+    "latitude": 50.45466,
+    "longitude": 30.5238
+  },
+  {
+    "id": "catalog:lagos-ng",
+    "catalog_id": "lagos-ng",
+    "canonical_id": "city:lagos|country:nigeria|tz:africa-lagos",
+    "latitude": 6.45407,
+    "longitude": 3.39467
+  },
+  {
+    "id": "catalog:lahore-pk",
+    "catalog_id": "lahore-pk",
+    "canonical_id": "city:lahore|country:pakistan|tz:asia-karachi",
+    "latitude": 31.558,
+    "longitude": 74.35071
+  },
+  {
+    "id": "catalog:lima-pe",
+    "catalog_id": "lima-pe",
+    "canonical_id": "city:lima|country:peru|tz:america-lima",
+    "latitude": -12.04318,
+    "longitude": -77.02824
+  },
+  {
+    "id": "catalog:lisbon-pt",
+    "catalog_id": "lisbon-pt",
+    "canonical_id": "city:lisbon|country:portugal|tz:europe-lisbon",
+    "latitude": 38.72509,
+    "longitude": -9.1498
+  },
+  {
+    "id": "catalog:london-gb",
+    "catalog_id": "london-gb",
+    "canonical_id": "city:london|country:united-kingdom|tz:europe-london",
+    "latitude": 51.50853,
+    "longitude": -0.12574
+  },
+  {
+    "id": "catalog:los-angeles-us",
+    "catalog_id": "los-angeles-us",
+    "canonical_id": "city:los-angeles|country:united-states|tz:america-los_angeles",
+    "latitude": 34.05223,
+    "longitude": -118.24368
+  },
+  {
+    "id": "catalog:lyon-fr",
+    "catalog_id": "lyon-fr",
+    "canonical_id": "city:lyon|country:france|tz:europe-paris",
+    "latitude": 45.74906,
+    "longitude": 4.84789
+  },
+  {
+    "id": "catalog:madrid-es",
+    "catalog_id": "madrid-es",
+    "canonical_id": "city:madrid|country:spain|tz:europe-madrid",
+    "latitude": 40.4165,
+    "longitude": -3.70256
+  },
+  {
+    "id": "catalog:manchester-gb",
+    "catalog_id": "manchester-gb",
+    "canonical_id": "city:manchester|country:united-kingdom|tz:europe-london",
+    "latitude": 53.48095,
+    "longitude": -2.23743
+  },
+  {
+    "id": "catalog:manila-ph",
+    "catalog_id": "manila-ph",
+    "canonical_id": "city:manila|country:philippines|tz:asia-manila",
+    "latitude": 14.6042,
+    "longitude": 120.9822
+  },
+  {
+    "id": "catalog:marseille-fr",
+    "catalog_id": "marseille-fr",
+    "canonical_id": "city:marseille|country:france|tz:europe-paris",
+    "latitude": 43.29695,
+    "longitude": 5.38107
+  },
+  {
+    "id": "catalog:medellin-co",
+    "catalog_id": "medellin-co",
+    "canonical_id": "city:medellin|country:colombia|tz:america-bogota",
+    "latitude": 6.245,
+    "longitude": -75.57151
+  },
+  {
+    "id": "catalog:melbourne-au",
+    "catalog_id": "melbourne-au",
+    "canonical_id": "city:melbourne|country:australia|tz:australia-melbourne",
+    "latitude": -37.814,
+    "longitude": 144.96332
+  },
+  {
+    "id": "catalog:mexico-city-mx",
+    "catalog_id": "mexico-city-mx",
+    "canonical_id": "city:mexico-city|country:mexico|tz:america-mexico_city",
+    "latitude": 19.42847,
+    "longitude": -99.12766
+  },
+  {
+    "id": "catalog:miami-us",
+    "catalog_id": "miami-us",
+    "canonical_id": "city:miami|country:united-states|tz:america-new_york",
+    "latitude": 25.77427,
+    "longitude": -80.19366
+  },
+  {
+    "id": "catalog:milan-it",
+    "catalog_id": "milan-it",
+    "canonical_id": "city:milan|country:italy|tz:europe-rome",
+    "latitude": 45.46427,
+    "longitude": 9.18951
+  },
+  {
+    "id": "catalog:monterrey-mx",
+    "catalog_id": "monterrey-mx",
+    "canonical_id": "city:monterrey|country:mexico|tz:america-monterrey",
+    "latitude": 25.68435,
+    "longitude": -100.31721
+  },
+  {
+    "id": "catalog:montevideo-uy",
+    "catalog_id": "montevideo-uy",
+    "canonical_id": "city:montevideo|country:uruguay|tz:america-montevideo",
+    "latitude": -34.90328,
+    "longitude": -56.18816
+  },
+  {
+    "id": "catalog:montreal-ca",
+    "catalog_id": "montreal-ca",
+    "canonical_id": "city:montreal|country:canada|tz:america-toronto",
+    "latitude": 45.50884,
+    "longitude": -73.58781
+  },
+  {
+    "id": "catalog:moscow-ru",
+    "catalog_id": "moscow-ru",
+    "canonical_id": "city:moscow|country:russia|tz:europe-moscow",
+    "latitude": 55.75204,
+    "longitude": 37.61781
+  },
+  {
+    "id": "catalog:mumbai-in",
+    "catalog_id": "mumbai-in",
+    "canonical_id": "city:mumbai|country:india|tz:asia-kolkata",
+    "latitude": 19.07283,
+    "longitude": 72.88261
+  },
+  {
+    "id": "catalog:munich-de",
+    "catalog_id": "munich-de",
+    "canonical_id": "city:munich|country:germany|tz:europe-berlin",
+    "latitude": 48.13743,
+    "longitude": 11.57549
+  },
+  {
+    "id": "catalog:muscat-om",
+    "catalog_id": "muscat-om",
+    "canonical_id": "city:muscat|country:oman|tz:asia-muscat",
+    "latitude": 23.613325,
+    "longitude": 58.593312
+  },
+  {
+    "id": "catalog:nairobi-ke",
+    "catalog_id": "nairobi-ke",
+    "canonical_id": "city:nairobi|country:kenya|tz:africa-nairobi",
+    "latitude": -1.28333,
+    "longitude": 36.81667
+  },
+  {
+    "id": "catalog:naples-it",
+    "catalog_id": "naples-it",
+    "canonical_id": "city:naples|country:italy|tz:europe-rome",
+    "latitude": 40.85216,
+    "longitude": 14.26811
+  },
+  {
+    "id": "catalog:new-york-us",
+    "catalog_id": "new-york-us",
+    "canonical_id": "city:new-york|country:united-states|tz:america-new_york",
+    "latitude": 40.71427,
+    "longitude": -74.00597
+  },
+  {
+    "id": "catalog:novosibirsk-ru",
+    "catalog_id": "novosibirsk-ru",
+    "canonical_id": "city:novosibirsk|country:russia|tz:asia-novosibirsk",
+    "latitude": 55.02259,
+    "longitude": 82.93175
+  },
+  {
+    "id": "catalog:osaka-jp",
+    "catalog_id": "osaka-jp",
+    "canonical_id": "city:osaka|country:japan|tz:asia-tokyo",
+    "latitude": 34.69379,
+    "longitude": 135.50107
+  },
+  {
+    "id": "catalog:oslo-no",
+    "catalog_id": "oslo-no",
+    "canonical_id": "city:oslo|country:norway|tz:europe-oslo",
+    "latitude": 59.91273,
+    "longitude": 10.74609
+  },
+  {
+    "id": "catalog:ottawa-ca",
+    "catalog_id": "ottawa-ca",
+    "canonical_id": "city:ottawa|country:canada|tz:america-toronto",
+    "latitude": 45.41117,
+    "longitude": -75.69812
+  },
+  {
+    "id": "catalog:paris-fr",
+    "catalog_id": "paris-fr",
+    "canonical_id": "city:paris|country:france|tz:europe-paris",
+    "latitude": 48.85341,
+    "longitude": 2.3488
+  },
+  {
+    "id": "catalog:perm-ru",
+    "catalog_id": "perm-ru",
+    "canonical_id": "city:perm|country:russia|tz:asia-yekaterinburg",
+    "latitude": 58.01046,
+    "longitude": 56.25017
+  },
+  {
+    "id": "catalog:perth-au",
+    "catalog_id": "perth-au",
+    "canonical_id": "city:perth|country:australia|tz:australia-perth",
+    "latitude": -31.95224,
+    "longitude": 115.8614
+  },
+  {
+    "id": "catalog:phnom-penh-kh",
+    "catalog_id": "phnom-penh-kh",
+    "canonical_id": "city:phnom-penh|country:cambodia|tz:asia-phnom_penh",
+    "latitude": 11.56245,
+    "longitude": 104.91601
+  },
+  {
+    "id": "catalog:phoenix-us",
+    "catalog_id": "phoenix-us",
+    "canonical_id": "city:phoenix|country:united-states|tz:america-phoenix",
+    "latitude": 33.44838,
+    "longitude": -112.07404
+  },
+  {
+    "id": "catalog:porto-pt",
+    "catalog_id": "porto-pt",
+    "canonical_id": "city:porto|country:portugal|tz:europe-lisbon",
+    "latitude": 41.1485,
+    "longitude": -8.61097
+  },
+  {
+    "id": "catalog:prague-cz",
+    "catalog_id": "prague-cz",
+    "canonical_id": "city:prague|country:czech-republic|tz:europe-prague",
+    "latitude": 50.08804,
+    "longitude": 14.42076
+  },
+  {
+    "id": "catalog:quito-ec",
+    "catalog_id": "quito-ec",
+    "canonical_id": "city:quito|country:ecuador|tz:america-guayaquil",
+    "latitude": -0.22985,
+    "longitude": -78.52495
+  },
+  {
+    "id": "catalog:reykjavik-is",
+    "catalog_id": "reykjavik-is",
+    "canonical_id": "city:reykjavik|country:iceland|tz:atlantic-reykjavik",
+    "latitude": 64.13548,
+    "longitude": -21.89541
+  },
+  {
+    "id": "catalog:rio-br",
+    "catalog_id": "rio-br",
+    "canonical_id": "city:rio-de-janeiro|country:brazil|tz:america-sao_paulo",
+    "latitude": -22.90642,
+    "longitude": -43.18223
+  },
+  {
+    "id": "catalog:riyadh-sa",
+    "catalog_id": "riyadh-sa",
+    "canonical_id": "city:riyadh|country:saudi-arabia|tz:asia-riyadh",
+    "latitude": 24.68773,
+    "longitude": 46.72185
+  },
+  {
+    "id": "catalog:rome-it",
+    "catalog_id": "rome-it",
+    "canonical_id": "city:rome|country:italy|tz:europe-rome",
+    "latitude": 41.89193,
+    "longitude": 12.51133
+  },
+  {
+    "id": "catalog:saint-petersburg-ru",
+    "catalog_id": "saint-petersburg-ru",
+    "canonical_id": "city:saint-petersburg|country:russia|tz:europe-moscow",
+    "latitude": 59.93863,
+    "longitude": 30.31413
+  },
+  {
+    "id": "catalog:san-diego-us",
+    "catalog_id": "san-diego-us",
+    "canonical_id": "city:san-diego|country:united-states|tz:america-los_angeles",
+    "latitude": 32.71571,
+    "longitude": -117.16472
+  },
+  {
+    "id": "catalog:san-francisco-us",
+    "catalog_id": "san-francisco-us",
+    "canonical_id": "city:san-francisco|country:united-states|tz:america-los_angeles",
+    "latitude": 37.77493,
+    "longitude": -122.41942
+  },
+  {
+    "id": "catalog:santiago-cl",
+    "catalog_id": "santiago-cl",
+    "canonical_id": "city:santiago|country:chile|tz:america-santiago",
+    "latitude": -33.45694,
+    "longitude": -70.64827
+  },
+  {
+    "id": "catalog:sao-paulo-br",
+    "catalog_id": "sao-paulo-br",
+    "canonical_id": "city:sao-paulo|country:brazil|tz:america-sao_paulo",
+    "latitude": -23.5475,
+    "longitude": -46.63611
+  },
+  {
+    "id": "catalog:seattle-us",
+    "catalog_id": "seattle-us",
+    "canonical_id": "city:seattle|country:united-states|tz:america-los_angeles",
+    "latitude": 47.60621,
+    "longitude": -122.33207
+  },
+  {
+    "id": "catalog:seoul-kr",
+    "catalog_id": "seoul-kr",
+    "canonical_id": "city:seoul|country:south-korea|tz:asia-seoul",
+    "latitude": 37.566,
+    "longitude": 126.9784
+  },
+  {
+    "id": "catalog:shanghai-cn",
+    "catalog_id": "shanghai-cn",
+    "canonical_id": "city:shanghai|country:china|tz:asia-shanghai",
+    "latitude": 31.22222,
+    "longitude": 121.45806
+  },
+  {
+    "id": "catalog:shenzhen-cn",
+    "catalog_id": "shenzhen-cn",
+    "canonical_id": "city:shenzhen|country:china|tz:asia-shanghai",
+    "latitude": 22.54554,
+    "longitude": 114.0683
+  },
+  {
+    "id": "catalog:singapore-sg",
+    "catalog_id": "singapore-sg",
+    "canonical_id": "city:singapore|country:singapore|tz:asia-singapore",
+    "latitude": 1.28967,
+    "longitude": 103.85007
+  },
+  {
+    "id": "catalog:sofia-bg",
+    "catalog_id": "sofia-bg",
+    "canonical_id": "city:sofia|country:bulgaria|tz:europe-sofia",
+    "latitude": 42.69751,
+    "longitude": 23.32415
+  },
+  {
+    "id": "catalog:stockholm-se",
+    "catalog_id": "stockholm-se",
+    "canonical_id": "city:stockholm|country:sweden|tz:europe-stockholm",
+    "latitude": 59.32938,
+    "longitude": 18.06871
+  },
+  {
+    "id": "catalog:surabaya-id",
+    "catalog_id": "surabaya-id",
+    "canonical_id": "city:surabaya|country:indonesia|tz:asia-jakarta",
+    "latitude": -7.24917,
+    "longitude": 112.75083
+  },
+  {
+    "id": "catalog:suva-fj",
+    "catalog_id": "suva-fj",
+    "canonical_id": "city:suva|country:fiji|tz:pacific-fiji",
+    "latitude": -18.13683,
+    "longitude": 178.42531
+  },
+  {
+    "id": "catalog:sydney-au",
+    "catalog_id": "sydney-au",
+    "canonical_id": "city:sydney|country:australia|tz:australia-sydney",
+    "latitude": -33.86785,
+    "longitude": 151.20732
+  },
+  {
+    "id": "catalog:taipei-tw",
+    "catalog_id": "taipei-tw",
+    "canonical_id": "city:taipei|country:taiwan|tz:asia-taipei",
+    "latitude": 25.05306,
+    "longitude": 121.52639
+  },
+  {
+    "id": "catalog:tashkent-uz",
+    "catalog_id": "tashkent-uz",
+    "canonical_id": "city:tashkent|country:uzbekistan|tz:asia-tashkent",
+    "latitude": 41.26465,
+    "longitude": 69.21627
+  },
+  {
+    "id": "catalog:tbilisi-ge",
+    "catalog_id": "tbilisi-ge",
+    "canonical_id": "city:tbilisi|country:georgia|tz:asia-tbilisi",
+    "latitude": 41.69143,
+    "longitude": 44.83412
+  },
+  {
+    "id": "catalog:tehran-ir",
+    "catalog_id": "tehran-ir",
+    "canonical_id": "city:tehran|country:iran|tz:asia-tehran",
+    "latitude": 35.69439,
+    "longitude": 51.42151
+  },
+  {
+    "id": "catalog:tel-aviv-il",
+    "catalog_id": "tel-aviv-il",
+    "canonical_id": "city:tel-aviv|country:israel|tz:asia-jerusalem",
+    "latitude": 32.08088,
+    "longitude": 34.78057
+  },
+  {
+    "id": "catalog:tokyo-jp",
+    "catalog_id": "tokyo-jp",
+    "canonical_id": "city:tokyo|country:japan|tz:asia-tokyo",
+    "latitude": 35.6895,
+    "longitude": 139.69171
+  },
+  {
+    "id": "catalog:toronto-ca",
+    "catalog_id": "toronto-ca",
+    "canonical_id": "city:toronto|country:canada|tz:america-toronto",
+    "latitude": 43.70643,
+    "longitude": -79.39864
+  },
+  {
+    "id": "catalog:tunis-tn",
+    "catalog_id": "tunis-tn",
+    "canonical_id": "city:tunis|country:tunisia|tz:africa-tunis",
+    "latitude": 36.81897,
+    "longitude": 10.16579
+  },
+  {
+    "id": "catalog:vancouver-ca",
+    "catalog_id": "vancouver-ca",
+    "canonical_id": "city:vancouver|country:canada|tz:america-vancouver",
+    "latitude": 49.24966,
+    "longitude": -123.11934
+  },
+  {
+    "id": "catalog:vienna-at",
+    "catalog_id": "vienna-at",
+    "canonical_id": "city:vienna|country:austria|tz:europe-vienna",
+    "latitude": 48.20849,
+    "longitude": 16.37208
+  },
+  {
+    "id": "catalog:vientiane-la",
+    "catalog_id": "vientiane-la",
+    "canonical_id": "city:vientiane|country:laos|tz:asia-vientiane",
+    "latitude": 17.96667,
+    "longitude": 102.6
+  },
+  {
+    "id": "catalog:vladivostok-ru",
+    "catalog_id": "vladivostok-ru",
+    "canonical_id": "city:vladivostok|country:russia|tz:asia-vladivostok",
+    "latitude": 43.10562,
+    "longitude": 131.87353
+  },
+  {
+    "id": "catalog:warsaw-pl",
+    "catalog_id": "warsaw-pl",
+    "canonical_id": "city:warsaw|country:poland|tz:europe-warsaw",
+    "latitude": 52.22977,
+    "longitude": 21.01178
+  },
+  {
+    "id": "catalog:washington-us",
+    "catalog_id": "washington-us",
+    "canonical_id": "city:washington|country:united-states|tz:america-new_york",
+    "latitude": 38.89511,
+    "longitude": -77.03637
+  },
+  {
+    "id": "catalog:wellington-nz",
+    "catalog_id": "wellington-nz",
+    "canonical_id": "city:wellington|country:new-zealand|tz:pacific-auckland",
+    "latitude": -41.28664,
+    "longitude": 174.77557
+  },
+  {
+    "id": "catalog:yangon-mm",
+    "catalog_id": "yangon-mm",
+    "canonical_id": "city:yangon|country:myanmar|tz:asia-yangon",
+    "latitude": 16.80528,
+    "longitude": 96.15611
+  },
+  {
+    "id": "catalog:yekaterinburg-ru",
+    "catalog_id": "yekaterinburg-ru",
+    "canonical_id": "city:yekaterinburg|country:russia|tz:asia-yekaterinburg",
+    "latitude": 56.85733,
+    "longitude": 60.61529
+  },
+  {
+    "id": "catalog:yerevan-am",
+    "catalog_id": "yerevan-am",
+    "canonical_id": "city:yerevan|country:armenia|tz:asia-yerevan",
+    "latitude": 40.17765,
+    "longitude": 44.5126
+  },
+  {
+    "id": "catalog:zurich-ch",
+    "catalog_id": "zurich-ch",
+    "canonical_id": "city:zurich|country:switzerland|tz:europe-zurich",
+    "latitude": 47.36667,
+    "longitude": 8.55
+  }
+]

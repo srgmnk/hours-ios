@@ -37,7 +37,9 @@ import Foundation
     static func main() async throws {
         let url = Bundle.main.url(forResource: "cities", withExtension: "json")!
         let catalog = try JSONDecoder().decode([CitySearchItem].self, from: Data(contentsOf: url))
-        check(catalog.count == 152, "Use the actual complete catalog")
+        check(catalog.count == 3000, "Use the actual expanded catalog")
+        let originalBundle = Bundle(path: Bundle.main.bundleURL.appendingPathComponent("original-catalog.bundle").path)!
+        let originalProvider = CitySearchProvider(bundle: originalBundle)
         func local(_ id: String) -> CitySearchItem { catalog.first { $0.id == id }! }
         func merge(_ local: [CitySearchItem], _ remote: [CitySearchItem], added: Set<String> = []) -> [CitySearchItem] {
             CitySearchDeduplicator.merge(local: local, remote: remote, catalog: catalog, existingCanonicalIDs: added)
@@ -54,7 +56,8 @@ import Foundation
         let bkkLocal = local("bangkok-th"), moscowLocal = local("moscow-ru")
         let b = merge([bkkLocal, local("chiang-mai-th")], [bangkok, bangkok], added: [bkkLocal.canonicalIdentity])
         check(b.count == 2 && b[0] == bkkLocal, "Bangkok duplicates collapse to established catalog record")
-        check(b[0].geographicalEvidence != nil, "Retain remote evidence on catalog winner")
+        check(b[0].geographicalEvidence == nil && b[0].asCity.latitude == LocalCityCoordinates.byCatalogID[bkkLocal.id]!.latitude && b[0].asCity.longitude == LocalCityCoordinates.byCatalogID[bkkLocal.id]!.longitude,
+              "Catalog winner retains its reviewed coordinates when remote evidence matches")
         check(b[0].asCity.id == bkkLocal.asCity.id, "Added and persisted catalog identity unchanged")
         let m = merge([moscowLocal, local("saint-petersburg-ru")], [moscow, moscowUS, moscow])
         check(m.count == 3 && m[0] == moscowLocal && m[2].country == "United States", "Moscow countries remain separate")
@@ -77,11 +80,10 @@ import Foundation
         let localized = remote("Bangkok", "Thaïlande", "TH", 13.7537858, 100.4985251, "Asia/Bangkok")
         check(merge([bkkLocal], [localized]).count == 1, "Verified country code works across country display localization")
         let poi = remote("Bangkok", "Thailand", "TH", 13.7537858, 100.4985251, "Asia/Bangkok", context: "Bangkok Restaurant, Thailand")
-        // The actual converter's originalName/context/fullAddress checks prevent substituting a street/POI for a city.
+        // A matched POI is rejected before city presentation, even at a reviewed city anchor.
         var fakePOI = mapItem(poi); fakePOI.pointOfInterestCategory = .init(rawValue: "restaurant")
         let p = CitySearchProvider.shared
-        let convertedPOI = p.citySearchItem(from: fakePOI, idPrefix: "test")!
-        check(merge([bkkLocal], [convertedPOI]).count == 2, "POI at city anchor is not a catalog municipality")
+        check(p.citySearchItem(from: fakePOI, idPrefix: "test") == nil, "POI at city anchor is not accepted as a city")
         let placeA = remote("Test", "US", "US", 1, 2, "America/New_York", place: "A")
         let placeB = remote("Test", "US", "US", 3, 4, "America/New_York", place: "B")
         let bridge = remote("Test", "US", "US", 5, 6, "America/New_York", place: "B", aliases: ["A"])
@@ -99,7 +101,8 @@ import Foundation
             check(rows[0].id == DisplayResult.rows(for: [bkkLocal])[0].id, "Local row identity stable when remote arrives")
         }
         // Full current provider with deterministic remote callbacks, including cancellation races.
-        check(p.localResults(matching: "Ja", excluding: []).count == 8, "Ja remains local")
+        check(originalProvider.localResults(matching: "Ja", excluding: []).count == 8, "Original 152-row Ja behavior remains covered")
+        check(p.localResults(matching: "Ja", excluding: []).count == 40, "Expanded Ja remains deterministic and respects its limit")
         for query in ["Bangkok", "Bangkok"] {
             let start = MKLocalSearch.started.count
             let task = Task { await p.fallbackMergedResults(matching: query, localResults: [bkkLocal], excluding: [], existingCanonicalIDs: [bkkLocal.canonicalIdentity]) }

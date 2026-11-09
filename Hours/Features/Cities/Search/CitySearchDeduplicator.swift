@@ -10,13 +10,18 @@ enum CitySearchDeduplicator {
         var isCatalog: Bool
     }
 
-    // Reviewed city-level MapKit responses, 2026-10-26.
+    // Reviewed city-level MapKit responses, 2026-10-26 and 2026-11-08.
     // Exact returned anchors, not radius-based municipality boundaries. Unverified catalog
     // cities deliberately have no entry. A changed response remains separate for review.
     private static let catalogAnchors: [String: String] = [
         "bangkok-th": "TH|13.753786|100.498525",
         "moscow-ru": "RU|55.758664|37.619292",
-        "paris-fr": "FR|48.856788|2.351077"
+        "paris-fr": "FR|48.856788|2.351077",
+        // Recorded city/context/country evidence: Tests/CitySearchQuality/Fixtures.
+        "geonames-499099": "RU|53.206690|50.235386",
+        "geonames-1797945": "CN|23.690488|113.046323",
+        "geonames-2653941": "GB|52.202172|0.124830",
+        "geonames-4409896": "US|37.207114|-93.292360"
     ]
 
     static func merge(
@@ -35,7 +40,9 @@ enum CitySearchDeduplicator {
             if isCatalog {
                 keys.insert("catalog:" + source.id)
             } else if let canonical = verifiedCatalogItem(for: source, catalog: catalogByID) {
-                item = copy(canonical, evidence: source.geographicalEvidence)
+                // The catalog winner must also retain its reviewed coordinates:
+                // asCity prioritizes remote evidence over the catalog registry.
+                item = canonical
                 isCatalog = true
                 keys.insert("catalog:" + canonical.id)
             } else if !keys.isEmpty {
@@ -85,13 +92,14 @@ enum CitySearchDeduplicator {
               let context = evidence.cityWithFullContext,
               !address.isEmpty, normalize(address) == normalize(context),
               evidence.pointOfInterestCategory == nil else { return nil }
-        return catalogAnchors.keys.sorted().compactMap { id -> CitySearchItem? in
+        let matches = catalogAnchors.keys.sorted().compactMap { id -> CitySearchItem? in
             guard catalogAnchors[id] == anchor, let local = catalog[id],
-                  local.timeZoneIdentifier == item.timeZoneIdentifier else { return nil }
+                  CityTimeZoneCompatibility.matches(local.timeZoneIdentifier, item.timeZoneIdentifier) else { return nil }
             let names = Set(([local.city] + local.aliases).map(normalize))
             guard names.contains(normalize(originalName)), names.contains(normalize(cityName)) else { return nil }
             return local
-        }.first
+        }
+        return matches.count == 1 ? matches.first : nil
     }
 
     private static func evidenceKeys(_ evidence: CitySearchItem.GeographicalEvidence?) -> Set<String> {
@@ -135,8 +143,9 @@ enum CitySearchDeduplicator {
         } else {
             preferred = first; other = next
         }
-        return Group(item: copy(preferred.item, evidence: mergedEvidence(preferred.item.geographicalEvidence,
-                                                                         other.item.geographicalEvidence)),
+        return Group(item: preferred.isCatalog ? preferred.item :
+                        copy(preferred.item, evidence: mergedEvidence(preferred.item.geographicalEvidence,
+                                                                     other.item.geographicalEvidence)),
                      keys: first.keys.union(next.keys), isCatalog: preferred.isCatalog)
     }
 

@@ -1,0 +1,45 @@
+{
+  "provenance": "Actual raw MapKit Springfield response captured on macOS 27.0.1 on 2026-11-08T15:09:53Z during post-correction verification. MapKit raw geography is independent of result filtering. Not a physical-iPhone or mainland-China capture. Source trace SHA-256: 5924699ab4636daae935cf0099549e8bf4b90ee8358ec3c8f35abc0051b986ac",
+  "queries": [
+    {
+      "query": "Springfield",
+      "completions": [
+        {
+          "title": "",
+          "subtitle": "",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Springfield",
+              "cityWithContext": "Springfield, MO, United States",
+              "countryCode": "US",
+              "countryName": "United States",
+              "fullAddress": "Springfield, MO, United States",
+              "fullCityContext": "Springfield, MO, United States",
+              "identifier": null,
+              "latitude": 37.2071144,
+              "longitude": -93.2923603,
+              "name": "Springfield",
+              "placemark": {
+                "administrativeArea": "MO",
+                "areasOfInterest": [],
+                "country": "United States",
+                "inlandWater": null,
+                "isoCountryCode": "US",
+                "locality": "Springfield",
+                "ocean": null,
+                "subAdministrativeArea": "Greene County",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Springfield",
+              "timeZone": "America/Chicago"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

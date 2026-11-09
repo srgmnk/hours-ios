@@ -3,6 +3,7 @@ import Foundation
 enum LegalDocument: String, Identifiable {
     case privacy
     case terms
+    case dataAttribution
 
     var id: String { rawValue }
 
@@ -12,10 +13,13 @@ enum LegalDocument: String, Identifiable {
             return "Privacy Policy"
         case .terms:
             return "Terms of Use"
+        case .dataAttribution:
+            return "Data Attribution"
         }
     }
 
-    func url(for theme: AppTheme) -> URL {
+    func url(for theme: AppTheme) -> URL? {
+        guard let baseURLString else { return nil }
         var components = URLComponents(string: baseURLString)!
         components.queryItems = [
             URLQueryItem(name: "theme", value: themeQueryValue(for: theme))
@@ -23,12 +27,14 @@ enum LegalDocument: String, Identifiable {
         return components.url!
     }
 
-    private var baseURLString: String {
+    private var baseURLString: String? {
         switch self {
         case .privacy:
             return "https://sergy.xyz/hours/privacy/"
         case .terms:
             return "https://sergy.xyz/hours/terms/"
+        case .dataAttribution:
+            return nil
         }
     }
 

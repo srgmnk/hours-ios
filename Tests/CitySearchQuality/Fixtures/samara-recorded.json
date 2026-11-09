@@ -1,0 +1,367 @@
+{
+  "provenance": "Actual MapKit responses captured on macOS 27.0.1 on 2026-11-08 by the unmodified pre-fix provider; locale en_RU; live network, not a physical-iPhone or mainland-China capture. Replays are deterministic fixtures, not claims that MapKit is deterministic. Source response-array SHA-256: 8aa69782f80ff709f47dab3ae15c4c17dcb959316c8102a2cf1c2a5511c7e67b",
+  "queries": [
+    {
+      "query": "Samara",
+      "completions": [
+        {
+          "title": "Samara",
+          "subtitle": "Samara Oblast, Russia",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Samara",
+              "cityWithContext": "Samara, Samara Oblast, Russia",
+              "countryCode": "RU",
+              "countryName": "Russia",
+              "fullAddress": "Samara, Samara Oblast, Russia",
+              "fullCityContext": "Samara, Samara Oblast, Russia",
+              "identifier": null,
+              "latitude": 53.2066899,
+              "longitude": 50.2353862,
+              "name": "Samara",
+              "placemark": {
+                "administrativeArea": "Samara Oblast",
+                "areasOfInterest": [],
+                "country": "Russia",
+                "inlandWater": null,
+                "isoCountryCode": "RU",
+                "locality": "Samara",
+                "ocean": null,
+                "subAdministrativeArea": "Urban Okrug Samara",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Samara",
+              "timeZone": "Europe/Samara"
+            }
+          ]
+        },
+        {
+          "title": "Samara Oblast",
+          "subtitle": "Russia",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Samara Oblast",
+              "cityWithContext": "",
+              "countryCode": "RU",
+              "countryName": "Russia",
+              "fullAddress": "Samara Oblast, Russia",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": 53.196632,
+              "longitude": 50.1180936,
+              "name": "Samara Oblast",
+              "placemark": {
+                "administrativeArea": "Samara Oblast",
+                "areasOfInterest": [],
+                "country": "Russia",
+                "inlandWater": null,
+                "isoCountryCode": "RU",
+                "locality": null,
+                "ocean": null,
+                "subAdministrativeArea": null,
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Samara Oblast, Russia",
+              "timeZone": "Europe/Samara"
+            }
+          ]
+        },
+        {
+          "title": "Samara",
+          "subtitle": "Sumy Oblast, Ukraine",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Samara",
+              "cityWithContext": "Samara, Sumy Oblast, Ukraine",
+              "countryCode": "UA",
+              "countryName": "Ukraine",
+              "fullAddress": "Samara, Sumy Oblast, Ukraine",
+              "fullCityContext": "Samara, Sumy Oblast, Ukraine",
+              "identifier": null,
+              "latitude": 50.9807222,
+              "longitude": 34.3956834,
+              "name": "Samara",
+              "placemark": {
+                "administrativeArea": "Sumy Oblast",
+                "areasOfInterest": [],
+                "country": "Ukraine",
+                "inlandWater": null,
+                "isoCountryCode": "UA",
+                "locality": "Samara",
+                "ocean": null,
+                "subAdministrativeArea": "Sumy District",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Samara",
+              "timeZone": "Europe/Kyiv"
+            }
+          ]
+        },
+        {
+          "title": "Samarate",
+          "subtitle": "VA, Italy",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Samarate",
+              "cityWithContext": "",
+              "countryCode": "IT",
+              "countryName": "Italy",
+              "fullAddress": "21017 Samarate VA, Italy",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": 45.6285709,
+              "longitude": 8.7843018,
+              "name": "Samarate",
+              "placemark": {
+                "administrativeArea": "Lombardy",
+                "areasOfInterest": [],
+                "country": "Italy",
+                "inlandWater": null,
+                "isoCountryCode": "IT",
+                "locality": "Samarate",
+                "ocean": null,
+                "subAdministrativeArea": "Varese",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Samarate",
+              "timeZone": "Europe/Rome"
+            }
+          ]
+        },
+        {
+          "title": "Samara",
+          "subtitle": "Aringay, La Union, Philippines",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Aringay",
+              "cityWithContext": "Aringay, La Union, Philippines",
+              "countryCode": "PH",
+              "countryName": "Philippines",
+              "fullAddress": "Samara, Aringay, La Union, Philippines",
+              "fullCityContext": "Aringay, La Union, Philippines",
+              "identifier": null,
+              "latitude": 16.3966329,
+              "longitude": 120.3277997,
+              "name": "Samara",
+              "placemark": {
+                "administrativeArea": "Ilocos",
+                "areasOfInterest": [
+                  "Luzon"
+                ],
+                "country": "Philippines",
+                "inlandWater": null,
+                "isoCountryCode": "PH",
+                "locality": "Aringay",
+                "ocean": null,
+                "subAdministrativeArea": "La Union",
+                "subLocality": "Samara",
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Samara, Aringay",
+              "timeZone": "Asia/Manila"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "query": "Самара",
+      "completions": [
+        {
+          "title": "Samara",
+          "subtitle": "Samara Oblast, Russia",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Samara",
+              "cityWithContext": "Samara, Samara Oblast, Russia",
+              "countryCode": "RU",
+              "countryName": "Russia",
+              "fullAddress": "Samara, Samara Oblast, Russia",
+              "fullCityContext": "Samara, Samara Oblast, Russia",
+              "identifier": null,
+              "latitude": 53.2066899,
+              "longitude": 50.2353862,
+              "name": "Samara",
+              "placemark": {
+                "administrativeArea": "Samara Oblast",
+                "areasOfInterest": [],
+                "country": "Russia",
+                "inlandWater": null,
+                "isoCountryCode": "RU",
+                "locality": "Samara",
+                "ocean": null,
+                "subAdministrativeArea": "Urban Okrug Samara",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Samara",
+              "timeZone": "Europe/Samara"
+            }
+          ]
+        },
+        {
+          "title": "Самара",
+          "subtitle": "Dnipropetrovsk Oblast, Ukraine",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Verbkivs'ka",
+              "cityWithContext": "Самара, Dnipropetrovsk Oblast, Ukraine",
+              "countryCode": "UA",
+              "countryName": "Ukraine",
+              "fullAddress": "Самара, Dnipropetrovsk Oblast, Ukraine",
+              "fullCityContext": "Самара, Dnipropetrovsk Oblast, Ukraine",
+              "identifier": null,
+              "latitude": 48.5567899,
+              "longitude": 35.9736952,
+              "name": "Самара",
+              "placemark": {
+                "administrativeArea": "Dnipropetrovsk Oblast",
+                "areasOfInterest": [],
+                "country": "Ukraine",
+                "inlandWater": "Самара",
+                "isoCountryCode": "UA",
+                "locality": "Verbkivs'ka",
+                "ocean": null,
+                "subAdministrativeArea": "Pavlohrad District",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Самара, Verbkivs'ka",
+              "timeZone": "Europe/Kyiv"
+            }
+          ]
+        },
+        {
+          "title": "Самара — Шымкент",
+          "subtitle": "Kyzylorda, Kazakhstan",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Zhanakorgan District",
+              "cityWithContext": "",
+              "countryCode": "KZ",
+              "countryName": "Kazakhstan",
+              "fullAddress": "Самара — Шымкент, Kyzylorda, Kazakhstan",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": 43.5349909,
+              "longitude": 67.7749653,
+              "name": "Самара — Шымкент",
+              "placemark": {
+                "administrativeArea": "Kyzylorda",
+                "areasOfInterest": [],
+                "country": "Kazakhstan",
+                "inlandWater": null,
+                "isoCountryCode": "KZ",
+                "locality": null,
+                "ocean": null,
+                "subAdministrativeArea": "Zhanakorgan District",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": "Самара — Шымкент"
+              },
+              "poi": null,
+              "shortAddress": "Самара — Шымкент",
+              "timeZone": "Asia/Qyzylorda"
+            }
+          ]
+        },
+        {
+          "title": "Samarate",
+          "subtitle": "VA, Italy",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Samarate",
+              "cityWithContext": "",
+              "countryCode": "IT",
+              "countryName": "Italy",
+              "fullAddress": "21017 Samarate VA, Italy",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": 45.6285709,
+              "longitude": 8.7843018,
+              "name": "Samarate",
+              "placemark": {
+                "administrativeArea": "Lombardy",
+                "areasOfInterest": [],
+                "country": "Italy",
+                "inlandWater": null,
+                "isoCountryCode": "IT",
+                "locality": "Samarate",
+                "ocean": null,
+                "subAdministrativeArea": "Varese",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": null
+              },
+              "poi": null,
+              "shortAddress": "Samarate",
+              "timeZone": "Europe/Rome"
+            }
+          ]
+        },
+        {
+          "title": "Самара-Шымкент автожолы",
+          "subtitle": "Kyzylorda, Kazakhstan",
+          "mapItems": [
+            {
+              "alternateIdentifiers": [],
+              "cityName": "Zhanakorgan District",
+              "cityWithContext": "",
+              "countryCode": "KZ",
+              "countryName": "Kazakhstan",
+              "fullAddress": "Самара-Шымкент автожолы, Kyzylorda, Kazakhstan",
+              "fullCityContext": "",
+              "identifier": null,
+              "latitude": 43.8410476,
+              "longitude": 67.4178639,
+              "name": "Самара-Шымкент автожолы",
+              "placemark": {
+                "administrativeArea": "Kyzylorda",
+                "areasOfInterest": [],
+                "country": "Kazakhstan",
+                "inlandWater": null,
+                "isoCountryCode": "KZ",
+                "locality": null,
+                "ocean": null,
+                "subAdministrativeArea": "Zhanakorgan District",
+                "subLocality": null,
+                "subThoroughfare": null,
+                "thoroughfare": "Самара-Шымкент автожолы"
+              },
+              "poi": null,
+              "shortAddress": "Самара-Шымкент автожолы",
+              "timeZone": "Asia/Qyzylorda"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
