@@ -5,6 +5,8 @@ struct ProgressiveBottomBlurOverlay: View {
     @Environment(\.colorScheme) private var colorScheme
 
     let height: CGFloat
+    // Opt-in semantic tint for the portrait list; existing callers retain their output.
+    var lightTint: Color? = nil
 
     private var isDarkMode: Bool {
         colorScheme == .dark
@@ -103,6 +105,8 @@ struct ProgressiveBottomBlurOverlay: View {
         Group {
             if isDarkMode {
                 darkOverlay
+            } else if let lightTint {
+                lightOverlay.colorMultiply(lightTint)
             } else {
                 lightOverlay
             }

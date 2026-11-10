@@ -3,11 +3,18 @@ import Foundation
 /// Decorative geography only. Never changes a City or participates in search identity.
 struct NightCityLights {
     enum Style {
-        static let diameter: Float = 1 // points; independent of map scale
+        // Measured properties of the bundled Figma sprite. Appearance edits must
+        // update that export too; these values document its geometry and colors.
+        static let diameter: Float = 2 // core, screen points; independent of map scale
+        static let glowDiameter: Float = 6
+        static let blurRadius: Float = 4
+        static let glowOpacity: Float = 0.6
+        static let spriteDiameter: Float = 14 // exported glow bounds, including blur
         static let invisibleElevation = -3.0
         static let fullElevation = -9.0
-        static let brightness: Float = 0.65
-        static let color = SIMD3<Float>(1, 244 / 255, 214 / 255) // #FFF4D6
+        static let brightness: Float = 1
+        static let color = SIMD3<Float>(1, 0.9342057108879089, 0.7368227243423462)
+        static let glowColor = SIMD3<Float>(1, 0.75, 0)
     }
 
     struct Light: Equatable {
@@ -37,9 +44,9 @@ struct NightCityLights {
     }
 
     init(catalog items: [CitySearchItem]) {
-        // Preserve the original base; newly saved catalog cities use the dynamic light path.
-        let decorativeIDs = Set(OriginalDecorativeCityIDs.catalogIDs)
-        catalog = OriginalDecorativeCityIDs.catalogIDs.map {
+        // Only the curated base changes; every other saved city uses the dynamic path.
+        let decorativeIDs = Set(DecorativeCityIDs.catalogIDs)
+        catalog = DecorativeCityIDs.catalogIDs.map {
             Light(id: "catalog:" + $0, coordinate: LocalCityCoordinates.byCatalogID[$0]!)
         }
         let identities = Dictionary(grouping: items.filter { decorativeIDs.contains($0.id) }, by: \.canonicalIdentity)

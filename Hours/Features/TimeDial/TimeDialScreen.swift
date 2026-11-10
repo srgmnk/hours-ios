@@ -193,17 +193,19 @@ struct TimeDialScreen: View {
                                 .allowsHitTesting(false)
                             }
                         } else {
-                            CityListReorderUIKitView(
-                                cities: $cityStore.cities,
-                                selectedInstant: selectedInstant,
-                                userCurrentLocationItem: currentLocationProvider.currentCityItem,
-                                // Keep scroll content layout independent from pinned button offset.
-                                topSafeAreaInset: topButtonBarTopPadding + ((topButtonBarHeight - logoHeight) / 2),
-                                // Desired visual stop gap from physical screen bottom.
-                                bottomContentInset: cityListDesiredBottomGap,
-                                onRenameRequested: presentRenameSheet(for:),
-                                onCitySelected: presentCityDetails(for:)
-                            )
+                            CityListStoreObservation(cityStore: cityStore) { cities in
+                                CityListReorderUIKitView(
+                                    cities: cities,
+                                    selectedInstant: selectedInstant,
+                                    userCurrentLocationItem: currentLocationProvider.currentCityItem,
+                                    // Keep scroll content layout independent from pinned button offset.
+                                    topSafeAreaInset: topButtonBarTopPadding + ((topButtonBarHeight - logoHeight) / 2),
+                                    // Desired visual stop gap from physical screen bottom.
+                                    bottomContentInset: cityListDesiredBottomGap,
+                                    onRenameRequested: presentRenameSheet(for:),
+                                    onCitySelected: presentCityDetails(for:)
+                                )
+                            }
                             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
                         }
                     } map: {
@@ -328,11 +330,12 @@ struct TimeDialScreen: View {
                     if mapVisible || duoMapMounted {
                         WorldMapObservedContent(
                             viewModel: viewModel, cityStore: cityStore,
-                            viewportSize: layout.mapViewport.size, horizontalPosition: $mapHorizontalPosition,
-                            geometryProfile: layout.isInner ? .duoInner : .duoOuter,
+                            viewportSize: layout.mapRenderingViewport.size, horizontalPosition: $mapHorizontalPosition,
+                            geometryProfile: layout.mapGeometryProfile,
                             isPresentationVisible: mapVisible,
                             visualViewport: layout.mapVisualViewport,
                             usesDuoDrawingContainer: true,
+                            interactionViewport: layout.mapInteractionViewport,
                             onCitySelected: presentMapCityDetails(for:)
                         )
                         .position(x: layout.mapDrawingFrame.midX, y: layout.mapDrawingFrame.midY)
@@ -341,22 +344,28 @@ struct TimeDialScreen: View {
                         .accessibilityHidden(!mapVisible)
                         .onAppear {
                             if !mapHasBeenPresented && layout.isInner {
-                                mapHorizontalPosition = WorldMapGeometryProfile.duoInitialCenter
+                                mapHorizontalPosition = layout.isPortrait
+                                    ? WorldMapGeometryProfile.duoPortraitInitialCenter
+                                    : WorldMapGeometryProfile.duoInitialCenter
                             }
                             mapHasBeenPresented = true
                             duoMapMounted = true
                         }
                     }
                     // This controller stays mounted, including while empty or hidden.
-                    CityListReorderUIKitView(
-                        cities: $cityStore.cities, selectedInstant: instant,
-                        userCurrentLocationItem: currentLocationProvider.currentCityItem,
-                        topSafeAreaInset: 25,
-                        bottomContentInset: layout.isInner ? layout.bottomInset : 130,
-                        onRenameRequested: presentRenameSheet(for:),
-                        onCitySelected: presentCityDetails(for:),
-                        duoViewport: layout.listViewport.size
-                    )
+                    CityListStoreObservation(cityStore: cityStore) { cities in
+                        CityListReorderUIKitView(
+                            cities: cities, selectedInstant: instant,
+                            userCurrentLocationItem: currentLocationProvider.currentCityItem,
+                            topSafeAreaInset: layout.listTopInset,
+                            bottomContentInset: layout.isInner ? layout.bottomInset : 130,
+                            onRenameRequested: presentRenameSheet(for:),
+                            onCitySelected: presentCityDetails(for:),
+                            duoViewport: layout.listViewport.size,
+                            duoShowsLogo: !layout.isPortrait,
+                            duoHorizontalInset: layout.listHorizontalInset
+                        )
+                    }
                     .frame(width: layout.listViewport.width, height: layout.listViewport.height)
                     .position(x: layout.listViewport.midX, y: layout.listViewport.midY)
                     .opacity(listVisible && !cityStore.cities.isEmpty ? 1 : 0)
@@ -378,19 +387,22 @@ struct TimeDialScreen: View {
                                     .allowsHitTesting(false)
                             }
                     }
-                    if (listVisible && cityStore.cities.isEmpty) || (!layout.isInner && mapVisible) {
+                    if layout.isPortrait || (listVisible && cityStore.cities.isEmpty) || (!layout.isInner && mapVisible) {
                         Image("HoursLogo").resizable().scaledToFit()
                             .frame(width: logoWidth, height: logoHeight)
-                            .position(x: layout.listViewport.midX + 3, y: layout.listViewport.minY + 32.5)
+                            .position(x: layout.isPortrait ? layout.map.midX : layout.listViewport.midX + 3,
+                                      y: layout.isPortrait ? layout.map.minY + 49.5 : layout.listViewport.minY + 32.5)
                             .allowsHitTesting(false)
                     }
-                    ProgressiveBottomBlurOverlay(height: layout.blurHeight)
-                        .frame(width: layout.blurFrame.width, height: layout.blurHeight)
-                        .position(x: layout.blurFrame.midX, y: layout.blurFrame.midY)
-                        .allowsHitTesting(false)
+                    if !layout.isPortrait {
+                        ProgressiveBottomBlurOverlay(height: layout.blurHeight)
+                            .frame(width: layout.blurFrame.width, height: layout.blurHeight)
+                            .position(x: layout.blurFrame.midX, y: layout.blurFrame.midY)
+                            .allowsHitTesting(false)
+                    }
                     duoWheel(layout: layout, geometry: geometry, rotation: rotation, steps: steps, reset: reset)
                     DeltaPillView(mode: mode, deltaText: delta, onTapReset: resetToNow, isDuoPresentation: true)
-                        .position(x: layout.map.midX, y: layout.map.maxY - (layout.isInner ? 36 : 47))
+                        .position(x: layout.deltaCenter.x, y: layout.deltaCenter.y)
                     if !layout.isInner {
                         CityPresentationSwitcher(
                             presentation: $cityPresentation,
@@ -551,7 +563,7 @@ struct TimeDialScreen: View {
             CityPresentationButton(
                 presentation: $presentation,
                 selectedInstant: selectedInstant,
-                primaryTimeZone: cityStore.cities.first?.timeZone ?? .current
+                primaryTimeZone: cityStore.cities.primaryCity?.timeZone ?? .current
             )
         }
     }
@@ -771,7 +783,7 @@ struct TimeDialScreen: View {
         sheetsAwaitingDismissal.insert(.cityDetails)
         cityDetailsPresentation = CityDetailsPresentation(
             city: city,
-            primaryCity: cityStore.cities.first ?? city,
+            primaryCity: cityStore.cities.primaryCity ?? city,
             date: viewModel.selectedInstant,
             relativeOffsetMinutes: viewModel.deltaMinutes,
             cityViewPreference: selectedCityViewPreference
@@ -868,9 +880,22 @@ private final class ShakeDetector: UIView {
     }
 }
 
+// Observe city mutations below deferred geometry/dial closures, even while the
+// ticker is paused. This forwards the original store binding to the retained list.
+private struct CityListStoreObservation<Content: View>: View {
+    @ObservedObject var cityStore: CityStore
+    @ViewBuilder let content: (Binding<[City]>) -> Content
+
+    var body: some View {
+        let _ = cityStore.cities
+        content($cityStore.cities)
+    }
+}
+
 private struct CityListReorderUIKitView: UIViewControllerRepresentable {
     // Observe appearance below the deferred geometry boundary.
     @Environment(\.appTheme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var cities: [City]
     let selectedInstant: Date
     let userCurrentLocationItem: CitySearchItem?
@@ -879,11 +904,14 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
     private var cityViewPreference: CityViewPreference {
         CityViewPreference.from(rawValue: cityViewPreferenceRawValue)
     }
+    @AppStorage(AppTimeFormatPreference.storageKey) private var timeFormatPreference = AppTimeFormatPreference.system.rawValue
     let topSafeAreaInset: CGFloat
     let bottomContentInset: CGFloat
     let onRenameRequested: (City) -> Void
     let onCitySelected: (City) -> Void
     var duoViewport: CGSize? = nil
+    var duoShowsLogo = true
+    var duoHorizontalInset: CGFloat = 8
 
     final class Coordinator {
         var parent: CityListReorderUIKitView
@@ -914,7 +942,8 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
         controller.onCitySelected = { [weak coordinator = context.coordinator] city in
             coordinator?.parent.onCitySelected(city)
         }
-        controller.prepareDuoLayout(viewport: duoViewport)
+        controller.updateCardTheme(theme)
+        controller.prepareDuoLayout(viewport: duoViewport, showsLogo: duoShowsLogo, horizontalInset: duoHorizontalInset)
         controller.apply(
             cities: cities,
             selectedInstant: selectedInstant,
@@ -924,10 +953,12 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
             bottomInset: bottomContentInset,
             cardBackgroundColor: SheetStyle.appCardBackground(for: theme)
         )
+        controller.updatePortraitBlur(theme: theme, colorScheme: colorScheme)
         return controller
     }
 
     func updateUIViewController(_ uiViewController: CityListReorderViewController, context: Context) {
+        _ = timeFormatPreference
         context.coordinator.parent = self
         uiViewController.onCitiesChanged = { [weak coordinator = context.coordinator] updatedCities in
             coordinator?.publishCities(updatedCities)
@@ -938,7 +969,8 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
         uiViewController.onCitySelected = { [weak coordinator = context.coordinator] city in
             coordinator?.parent.onCitySelected(city)
         }
-        uiViewController.prepareDuoLayout(viewport: duoViewport)
+        uiViewController.updateCardTheme(theme)
+        uiViewController.prepareDuoLayout(viewport: duoViewport, showsLogo: duoShowsLogo, horizontalInset: duoHorizontalInset)
         uiViewController.apply(
             cities: cities,
             selectedInstant: selectedInstant,
@@ -948,10 +980,26 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
             bottomInset: bottomContentInset,
             cardBackgroundColor: SheetStyle.appCardBackground(for: theme)
         )
+        uiViewController.updatePortraitBlur(theme: theme, colorScheme: colorScheme)
     }
 }
 
-private final class CityListReorderViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout {
+private struct PortraitCityListBlur: View {
+    let theme: AppTheme
+    let colorScheme: ColorScheme
+    var body: some View {
+        ProgressiveBottomBlurOverlay(height: 40, lightTint: theme.screenBackground)
+            .frame(height: 40)
+            .rotationEffect(.degrees(180))
+            .clipped()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .environment(\.appTheme, theme)
+            .environment(\.colorScheme, colorScheme)
+    }
+}
+
+private final class CityListReorderViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegateFlowLayout, UIGestureRecognizerDelegate {
     private static var didPrintBottomInsetProbe = false
     private static let logoHeaderReuseIdentifier = "CityListLogoHeaderView"
     private static let logoHeight: CGFloat = 15
@@ -982,13 +1030,42 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             self?.trailingSwipeActionsConfiguration(for: indexPath)
         }
 
-        return UICollectionViewCompositionalLayout { _, layoutEnvironment in
+        return UICollectionViewCompositionalLayout { [weak self] _, layoutEnvironment in
+            var configuration = listConfiguration
+            let portrait = self?.duoViewport != nil && self?.duoShowsLogo == false
+            if portrait { configuration.headerMode = .none }
+            if self?.cityViewPreference == .cards {
+                let inset = self?.duoViewport == nil ? 8 : (self?.duoHorizontalInset ?? 8)
+                let width = (layoutEnvironment.container.effectiveContentSize.width - inset * 2 - 8) / 2
+                let item = NSCollectionLayoutItem(layoutSize: NSCollectionLayoutSize(
+                    widthDimension: .absolute(max(1, width)), heightDimension: .absolute(200)))
+                let group = NSCollectionLayoutGroup.horizontal(
+                    layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1),
+                                                       heightDimension: .absolute(200)),
+                    subitems: [item, item])
+                group.interItemSpacing = .fixed(8)
+                let section = NSCollectionLayoutSection(group: group)
+                section.interGroupSpacing = 8
+                section.contentInsets = NSDirectionalEdgeInsets(top: portrait ? self?.topInset ?? 20 : 0,
+                                                               leading: inset, bottom: 0, trailing: inset)
+                if !portrait {
+                    let height = (self?.topInset ?? 0) + Self.logoHeight +
+                        (self?.duoViewport == nil ? Self.logoBottomSpacing : 24)
+                    section.boundarySupplementaryItems = [NSCollectionLayoutBoundarySupplementaryItem(
+                        layoutSize: NSCollectionLayoutSize(widthDimension: .fractionalWidth(1),
+                                                           heightDimension: .absolute(height)),
+                        elementKind: UICollectionView.elementKindSectionHeader, alignment: .top)]
+                }
+                return section
+            }
             let section = NSCollectionLayoutSection.list(
-                using: listConfiguration,
+                using: configuration,
                 layoutEnvironment: layoutEnvironment
             )
             section.interGroupSpacing = 8
-            section.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 8, bottom: 0, trailing: 8)
+            let inset = self?.duoViewport == nil ? 8 : (self?.duoHorizontalInset ?? 8)
+            section.contentInsets = NSDirectionalEdgeInsets(top: portrait ? self?.topInset ?? 20 : 0,
+                                                           leading: inset, bottom: 0, trailing: inset)
             return section
         }
     }()
@@ -1020,7 +1097,77 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         return recognizer
     }()
 
+    private var openActionsCityID: City.ID?
+    private var actionSwipeCityID: City.ID?
+    private var actionSwipeStartProgress: CGFloat = 0
+    private var actionSwipeWasOpen = false
+    private var actionSwipeProgress: CGFloat = 0
+    private lazy var cardActionPan: UIPanGestureRecognizer = {
+        let gesture = UIPanGestureRecognizer(target: self, action: #selector(handleCardActionPan(_:)))
+        gesture.delegate = self
+        gesture.isEnabled = false
+        gesture.require(toFail: longPressGestureRecognizer)
+        return gesture
+    }()
+    private lazy var dismissActionsTap: UITapGestureRecognizer = {
+        let gesture = UITapGestureRecognizer(target: self, action: #selector(handleOutsideActionTap))
+        gesture.cancelsTouchesInView = false
+        gesture.delegate = self
+        return gesture
+    }()
+
+    private var portraitBlur: UIHostingController<PortraitCityListBlur>?
+    private var portraitBlurScheme: ColorScheme?
+    private var portraitBlurBackground: Color?
+
+    func updatePortraitBlur(theme: AppTheme, colorScheme: ColorScheme) {
+        let enabled = duoViewport != nil && !duoShowsLogo
+        if enabled && portraitBlur == nil {
+            let host = UIHostingController(rootView: PortraitCityListBlur(theme: theme, colorScheme: colorScheme))
+            host.safeAreaRegions = []
+            addChild(host)
+            host.view.backgroundColor = .clear
+            host.view.isUserInteractionEnabled = false
+            host.view.accessibilityElementsHidden = true
+            host.view.clipsToBounds = true
+            host.view.alpha = 0
+            view.addSubview(host.view)
+            host.view.translatesAutoresizingMaskIntoConstraints = false
+            NSLayoutConstraint.activate([
+                host.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+                host.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+                host.view.topAnchor.constraint(equalTo: view.topAnchor),
+                host.view.heightAnchor.constraint(equalToConstant: 40)
+            ])
+            host.didMove(toParent: self)
+            portraitBlur = host
+        }
+        if enabled, portraitBlurScheme != colorScheme || portraitBlurBackground != theme.screenBackground {
+            portraitBlur?.rootView = PortraitCityListBlur(theme: theme, colorScheme: colorScheme)
+            portraitBlurScheme = colorScheme
+            portraitBlurBackground = theme.screenBackground
+        }
+        portraitBlur?.view.isHidden = !enabled
+        updatePortraitBlurOpacity()
+    }
+
+    private func updatePortraitBlurOpacity() {
+        guard let overlay = portraitBlur?.view else { return }
+        let distance = max(0, collectionView.contentOffset.y + collectionView.adjustedContentInset.top)
+        let progress = min(1, distance / 40)
+        // Smoothstep follows scrolling directly, with no animation or layout work.
+        UIView.performWithoutAnimation {
+            overlay.alpha = progress * progress * (3 - 2 * progress)
+        }
+    }
+
+    func scrollViewDidChangeAdjustedContentInset(_ scrollView: UIScrollView) {
+        updatePortraitBlurOpacity()
+    }
+
     private var duoViewport: CGSize?
+    private var duoShowsLogo = true
+    private var duoHorizontalInset: CGFloat = 8
     private struct ScrollAnchor {
         let candidates: [City.ID]
         let offset: CGFloat
@@ -1040,6 +1187,11 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        updatePortraitBlurOpacity()
+        if isReordering, cityViewPreference == .cards, let point = dragPointInViewport {
+            collectionView.updateInteractiveMovementTargetPosition(CGPoint(
+                x: point.x + collectionView.bounds.minX, y: point.y + collectionView.bounds.minY))
+        }
         // UIKit may adjust its offset before SwiftUI supplies the new pane size.
         // Preserve the last user anchor, not that transient automatic adjustment.
         guard duoViewport != nil, duoScrollAnchor == nil,
@@ -1047,8 +1199,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         lastDuoScrollAnchor = captureDuoScrollAnchor()
     }
 
-    func prepareDuoLayout(viewport: CGSize?) {
-        guard viewport != duoViewport else { return }
+    func prepareDuoLayout(viewport: CGSize?, showsLogo: Bool = true, horizontalInset: CGFloat = 8) {
+        guard viewport != duoViewport || showsLogo != duoShowsLogo || horizontalInset != duoHorizontalInset else { return }
         if duoViewport != nil {
             duoScrollAnchor = lastDuoScrollAnchor ?? captureDuoScrollAnchor()
             if isReordering {
@@ -1057,6 +1209,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             }
         }
         duoViewport = viewport
+        duoShowsLogo = showsLogo
+        duoHorizontalInset = horizontalInset
         if viewport != nil {
             collectionView.contentInsetAdjustmentBehavior = .never
             collectionView.automaticallyAdjustsScrollIndicatorInsets = false
@@ -1071,10 +1225,20 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     private var userCurrentLocationItem: CitySearchItem?
     private var cityViewPreference: CityViewPreference = .basic
     private var cardBackgroundColor: Color = AppTheme.light.surfaceCard
+    private var cardTheme: AppTheme?
+
+    func updateCardTheme(_ theme: AppTheme) {
+        // SwiftUI supplies the new theme before UIKit necessarily delivers its
+        // trait change. Cards must not capture the previous trait's text colors.
+        cardTheme = theme
+    }
     private var isReordering = false
     private var isTapToOpenSuppressed = false
     private var pendingExternalState: PendingExternalState?
     private var needsPostAttachReload = false
+    private var dragPointInViewport: CGPoint?
+    private var isDragAutoScrolling = false
+    private var reorderOriginalCities: [City]?
     private var draggedCityID: City.ID?
     private weak var liftedCell: CityListReorderCollectionCell?
     private var tapSuppressionResetWorkItem: DispatchWorkItem?
@@ -1098,7 +1262,10 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
+        longPressGestureRecognizer.delegate = self
         collectionView.addGestureRecognizer(longPressGestureRecognizer)
+        collectionView.addGestureRecognizer(cardActionPan)
+        collectionView.panGestureRecognizer.require(toFail: cardActionPan)
         applySectionInsets()
         deleteSuccessHaptics.prepare()
     }
@@ -1127,11 +1294,22 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         if duoViewport != nil, lastDuoScrollAnchor == nil {
             lastDuoScrollAnchor = captureDuoScrollAnchor()
         }
+        updatePortraitBlurOpacity()
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
+        if dismissActionsTap.view !== view.window {
+            view.window?.addGestureRecognizer(dismissActionsTap)
+        }
         runPostAttachReloadIfNeeded()
+        updatePortraitBlurOpacity()
+    }
+
+    override func viewWillDisappear(_ animated: Bool) {
+        super.viewWillDisappear(animated)
+        setOpenActionsCityID(nil)
+        dismissActionsTap.view?.removeGestureRecognizer(dismissActionsTap)
     }
 
     func apply(
@@ -1162,6 +1340,21 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         self.userCurrentLocationItem = userCurrentLocationItem
         let didCityViewPreferenceChange = self.cityViewPreference != cityViewPreference
         self.cityViewPreference = cityViewPreference
+        if didCityViewPreferenceChange {
+            resetCardActionPresentation()
+            openActionsCityID = nil
+            cardActionPan.isEnabled = cityViewPreference == .cards
+            collectionView.collectionViewLayout.invalidateLayout()
+        }
+        if let id = openActionsCityID, !cities.contains(where: { $0.id == id }) {
+            // The city is leaving the data source during representable update;
+            // retire its presentation instead of animating the outgoing host.
+            resetCardActionPresentation()
+            openActionsCityID = nil
+        }
+        if let id = actionSwipeCityID, !cities.contains(where: { $0.id == id }) {
+            resetCardActionPresentation()
+        }
 
         let insetsChanged = self.topInset != topInset || self.bottomInset != bottomInset
         if insetsChanged {
@@ -1276,16 +1469,21 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             guard let cell = collectionView.cellForItem(at: indexPath) as? CityListReorderCollectionCell else { continue }
 
             let city = citiesLocal[indexPath.item]
-            let referenceTimeZone = citiesLocal.first?.timeZone ?? city.timeZone
+            let referenceTimeZone = citiesLocal.primaryCity?.timeZone ?? city.timeZone
             cell.configure(
                 city: city,
                 selectedInstant: selectedInstant,
                 referenceTimeZone: referenceTimeZone,
-                isCurrent: indexPath.item == 0,
+                isCurrent: city.id == citiesLocal.primaryCity?.id,
                 isUserCurrentLocation: matchedCurrentLocationIndex == indexPath.item,
                 cityViewPreference: cityViewPreference,
                 cardBackgroundColor: cardBackgroundColor,
-                isDuoPresentation: duoViewport != nil
+                isDuoPresentation: duoViewport != nil,
+                cardTheme: cityViewPreference == .cards ? cardTheme : nil,
+                showsActions: openActionsCityID == city.id,
+                onRename: { [weak self] in self?.renameCity(id: city.id) },
+                onDelete: { [weak self] in self?.deleteCity(id: city.id) },
+                onOpenDetails: { [weak self] in self?.selectCity(id: city.id) }
             )
         }
     }
@@ -1349,8 +1547,10 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         case .began:
             guard let indexPath = collectionView.indexPathForItem(at: location) else { return }
             guard indexPath.item < citiesLocal.count else { return }
+            setOpenActionsCityID(nil)
             guard collectionView.beginInteractiveMovementForItem(at: indexPath) else { return }
 
+            reorderOriginalCities = citiesLocal
             tapSuppressionResetWorkItem?.cancel()
             isTapToOpenSuppressed = true
             isReordering = true
@@ -1363,8 +1563,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         case .changed:
             guard isReordering else { return }
             var target = location
-            target.x = collectionView.bounds.midX
-            collectionView.updateInteractiveMovementTargetPosition(target)
+            if cityViewPreference != .cards { target.x = collectionView.bounds.midX }
+            updateInteractiveMovementTarget(target)
 
         case .ended:
             guard isReordering else { return }
@@ -1383,8 +1583,50 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         }
     }
 
+    private func updateInteractiveMovementTarget(_ target: CGPoint) {
+        collectionView.updateInteractiveMovementTargetPosition(target)
+        guard cityViewPreference == .cards else { return }
+        dragPointInViewport = CGPoint(x: target.x - collectionView.bounds.minX,
+                                      y: target.y - collectionView.bounds.minY)
+        continueDragAutoScroll()
+    }
+
+    private func continueDragAutoScroll() {
+        guard isReordering, cityViewPreference == .cards, let point = dragPointInViewport else { return }
+        let insets = collectionView.adjustedContentInset
+        let direction: CGFloat = point.y < insets.top + 48 ? -1 :
+            (point.y > collectionView.bounds.height - insets.bottom - 48 ? 1 : 0)
+        if direction == 0 {
+            if isDragAutoScrolling {
+                isDragAutoScrolling = false
+                collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+            }
+            return
+        }
+        guard !isDragAutoScrolling else { return }
+        let minimum = -insets.top
+        let maximum = max(minimum, collectionView.contentSize.height - collectionView.bounds.height + insets.bottom)
+        let next = min(maximum, max(minimum, collectionView.contentOffset.y + direction * 104))
+        guard abs(next - collectionView.contentOffset.y) > 0.5 else { return }
+        // UIKit owns animation timing. Chain half-row steps only while a drag
+        // remains at the edge; no timer, display link, or idle rendering loop.
+        isDragAutoScrolling = true
+        collectionView.setContentOffset(CGPoint(x: collectionView.contentOffset.x, y: next), animated: true)
+    }
+
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        guard isDragAutoScrolling else { return }
+        isDragAutoScrolling = false
+        continueDragAutoScroll()
+    }
+
     private func finishInteractiveMovement() {
         isReordering = false
+        dragPointInViewport = nil
+        if isDragAutoScrolling {
+            isDragAutoScrolling = false
+            collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+        }
         liftedCell?.setLifted(false)
         liftedCell = nil
 
@@ -1401,6 +1643,16 @@ private final class CityListReorderViewController: UIViewController, UICollectio
 
         scheduleTapSuppressionReset()
         applyPendingExternalStateIfNeeded()
+        reorderOriginalCities = nil
+        reconfigureVisibleCells()
+    }
+
+    private func mergedPendingCities(_ incoming: [City]) -> [City] {
+        guard let original = reorderOriginalCities,
+              incoming.map(\.id) == original.map(\.id) else { return incoming }
+        // Merge refreshed names/data by identity while retaining the committed order.
+        let byID = Dictionary(uniqueKeysWithValues: incoming.map { ($0.id, $0) })
+        return citiesLocal.compactMap { byID[$0.id] }
     }
 
     private func scheduleTapSuppressionReset() {
@@ -1418,7 +1670,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         guard let pendingExternalState else { return }
         self.pendingExternalState = nil
         apply(
-            cities: pendingExternalState.cities,
+            cities: mergedPendingCities(pendingExternalState.cities),
             selectedInstant: pendingExternalState.selectedInstant,
             userCurrentLocationItem: pendingExternalState.userCurrentLocationItem,
             cityViewPreference: pendingExternalState.cityViewPreference,
@@ -1429,7 +1681,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     }
 
     private func trailingSwipeActionsConfiguration(for indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-        guard !isReordering else { return nil }
+        guard !isReordering, cityViewPreference != .cards else { return nil }
         guard citiesLocal.indices.contains(indexPath.item) else { return nil }
 
         let renameAction = UIContextualAction(style: .normal, title: nil) { [weak self] _, _, completion in
@@ -1441,11 +1693,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
                 completion(false)
                 return
             }
-            triggerRenameHaptics()
-            let city = self.citiesLocal[indexPath.item]
-            DispatchQueue.main.async {
-                self.onRenameRequested?(city)
-            }
+            self.renameCity(id: self.citiesLocal[indexPath.item].id)
             completion(true)
         }
         renameAction.image = UIImage(systemName: "character.textbox")?.withTintColor(
@@ -1471,6 +1719,138 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         return configuration
     }
 
+    private func actionCell(for id: City.ID) -> CityListReorderCollectionCell? {
+        guard let index = citiesLocal.firstIndex(where: { $0.id == id }) else { return nil }
+        return collectionView.cellForItem(at: IndexPath(item: index, section: 0)) as? CityListReorderCollectionCell
+    }
+
+    private func resetCardActionPresentation() {
+        for cell in collectionView.visibleCells.compactMap({ $0 as? CityListReorderCollectionCell }) {
+            cell.resetActionPresentation()
+        }
+        actionSwipeCityID = nil
+        actionSwipeProgress = 0
+    }
+
+    private func setOpenActionsCityID(_ id: City.ID?) {
+        let validID = cityViewPreference == .cards && !isReordering
+            ? id.flatMap { id in citiesLocal.contains(where: { $0.id == id }) ? id : nil } : nil
+        let affected = Set([openActionsCityID, actionSwipeCityID, validID].compactMap { $0 })
+        openActionsCityID = validID
+        actionSwipeCityID = nil
+        actionSwipeProgress = 0
+        for cityID in affected {
+            actionCell(for: cityID)?.actionPresentation.settle(open: cityID == validID)
+        }
+    }
+
+    private func renameCity(id: City.ID) {
+        guard !isReordering, !isTapToOpenSuppressed,
+              let city = citiesLocal.first(where: { $0.id == id }) else { return }
+        setOpenActionsCityID(nil)
+        triggerRenameHaptics()
+        DispatchQueue.main.async { [weak self] in self?.onRenameRequested?(city) }
+    }
+
+    private func deleteCity(id: City.ID) {
+        guard !isTapToOpenSuppressed, let index = citiesLocal.firstIndex(where: { $0.id == id }) else { return }
+        deleteCity(at: IndexPath(item: index, section: 0))
+    }
+
+    private func selectCity(id: City.ID) {
+        guard let index = citiesLocal.firstIndex(where: { $0.id == id }) else { return }
+        setOpenActionsCityID(nil)
+        collectionView(collectionView, didSelectItemAt: IndexPath(item: index, section: 0))
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard gestureRecognizer === cardActionPan else { return true }
+        let velocity = cardActionPan.velocity(in: collectionView)
+        let location = cardActionPan.location(in: collectionView)
+        let translation = cardActionPan.translation(in: collectionView)
+        let point = CGPoint(x: location.x - translation.x, y: location.y - translation.y)
+        return cityViewPreference == .cards && !isReordering &&
+            abs(velocity.x) > abs(velocity.y) * 1.5 &&
+            collectionView.indexPathForItem(at: point) != nil
+    }
+
+    private func isActionButtonPoint(_ point: CGPoint) -> Bool {
+        guard let id = openActionsCityID, actionCell(for: id)?.actionPresentation.buttonsEnabled == true,
+              let index = citiesLocal.firstIndex(where: { $0.id == id }),
+              let frame = collectionView.layoutAttributesForItem(at: IndexPath(item: index, section: 0))?.frame else { return false }
+        // The action area stays centered at y=100; hit regions match its controls.
+        return [-CardsActionMetrics.centerOffset, CardsActionMetrics.centerOffset].contains { offset in
+            hypot(point.x - frame.midX - offset, point.y - frame.minY - 100) <= CardsActionMetrics.diameter / 2
+        }
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        let point = touch.location(in: collectionView)
+        if gestureRecognizer === dismissActionsTap {
+            return openActionsCityID != nil && !isActionButtonPoint(point)
+        }
+        if gestureRecognizer === longPressGestureRecognizer && cityViewPreference == .cards {
+            return !isActionButtonPoint(point)
+        }
+        return true
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                           shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        gestureRecognizer === dismissActionsTap || otherGestureRecognizer === dismissActionsTap
+    }
+
+    @objc private func handleCardActionPan(_ recognizer: UIPanGestureRecognizer) {
+        guard cityViewPreference == .cards, !isReordering else { return }
+        switch recognizer.state {
+        case .began:
+            let location = recognizer.location(in: collectionView)
+            let translation = recognizer.translation(in: collectionView)
+            let point = CGPoint(x: location.x - translation.x, y: location.y - translation.y)
+            actionSwipeCityID = collectionView.indexPathForItem(at: point).flatMap {
+                citiesLocal.indices.contains($0.item) ? citiesLocal[$0.item].id : nil
+            }
+            guard let id = actionSwipeCityID else { return }
+            actionSwipeWasOpen = openActionsCityID == id
+            actionSwipeStartProgress = actionCell(for: id)?.actionPresentation.presentedProgress
+                ?? (actionSwipeWasOpen ? 1 : 0)
+            if let previous = openActionsCityID, previous != id {
+                actionCell(for: previous)?.actionPresentation.settle(open: false)
+                openActionsCityID = nil
+            }
+            updateCardActionSwipe(translation: translation.x)
+        case .changed:
+            updateCardActionSwipe(translation: recognizer.translation(in: collectionView).x)
+        case .ended:
+            let translation = recognizer.translation(in: collectionView)
+            if translation.x < -24 { setOpenActionsCityID(actionSwipeCityID) }
+            else if translation.x > 24 { setOpenActionsCityID(nil) }
+            else { setOpenActionsCityID(actionSwipeWasOpen ? actionSwipeCityID : nil) }
+        case .cancelled, .failed:
+            setOpenActionsCityID(actionSwipeWasOpen ? actionSwipeCityID : nil)
+        default: break
+        }
+    }
+
+    private func updateCardActionSwipe(translation: CGFloat) {
+        guard let id = actionSwipeCityID else { return }
+        // Keep the existing 24pt commit threshold; 96pt gives the visual reveal
+        // enough travel to follow a slow swipe without reaching its end instantly.
+        actionSwipeProgress = min(1, max(0, actionSwipeStartProgress - translation / 96))
+        actionCell(for: id)?.actionPresentation.updateInteractiveProgress(actionSwipeProgress)
+    }
+
+    @objc private func handleOutsideActionTap() {
+        guard openActionsCityID != nil else { return }
+        setOpenActionsCityID(nil)
+        isTapToOpenSuppressed = true
+        scheduleTapSuppressionReset()
+    }
+
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        if cityViewPreference == .cards { setOpenActionsCityID(nil) }
+    }
+
     private func triggerRenameHaptics() {
         let fire = {
             let haptics = UIImpactFeedbackGenerator(style: .medium)
@@ -1489,6 +1869,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         guard !isReordering else { return false }
         guard citiesLocal.indices.contains(indexPath.item) else { return false }
 
+        setOpenActionsCityID(nil)
         citiesLocal.remove(at: indexPath.item)
         let updatedCities = citiesLocal
 
@@ -1528,6 +1909,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             return
         }
 
+        // Collection indices are row-major in Cards, just as they are ordered
+        // rows in Basic/Compact. The first item in this shared order is Primary.
         let movedCity = citiesLocal.remove(at: sourceIndexPath.item)
         citiesLocal.insert(movedCity, at: destinationIndexPath.item)
 
@@ -1557,17 +1940,22 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         guard indexPath.item < citiesLocal.count else { return cell }
 
         let city = citiesLocal[indexPath.item]
-        let referenceTimeZone = citiesLocal.first?.timeZone ?? city.timeZone
+        let referenceTimeZone = citiesLocal.primaryCity?.timeZone ?? city.timeZone
         let matchedCurrentLocationIndex = currentLocationMatchIndex()
         cell.configure(
             city: city,
             selectedInstant: selectedInstant,
             referenceTimeZone: referenceTimeZone,
-            isCurrent: indexPath.item == 0,
+            isCurrent: city.id == citiesLocal.primaryCity?.id,
             isUserCurrentLocation: matchedCurrentLocationIndex == indexPath.item,
             cityViewPreference: cityViewPreference,
             cardBackgroundColor: cardBackgroundColor,
-            isDuoPresentation: duoViewport != nil
+            isDuoPresentation: duoViewport != nil,
+            cardTheme: cityViewPreference == .cards ? cardTheme : nil,
+            showsActions: openActionsCityID == city.id,
+            onRename: { [weak self] in self?.renameCity(id: city.id) },
+            onDelete: { [weak self] in self?.deleteCity(id: city.id) },
+            onOpenDetails: { [weak self] in self?.selectCity(id: city.id) }
         )
         return cell
     }
@@ -1577,6 +1965,10 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         guard !isTapToOpenSuppressed else { return }
         guard citiesLocal.indices.contains(indexPath.item) else { return }
 
+        if openActionsCityID != nil {
+            setOpenActionsCityID(nil)
+            return
+        }
         let city = citiesLocal[indexPath.item]
         let haptics = UIImpactFeedbackGenerator(style: .light)
         haptics.impactOccurred()
@@ -1592,7 +1984,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         layout collectionViewLayout: UICollectionViewLayout,
         sizeForItemAt indexPath: IndexPath
     ) -> CGSize {
-        let height: CGFloat = cityViewPreference == .compact ? 88 : 140
+        let height: CGFloat = cityViewPreference == .cards ? 200 : (cityViewPreference == .compact ? 88 : 140)
         return CGSize(width: max(0, collectionView.bounds.width - 32), height: height)
     }
 
@@ -1636,7 +2028,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             logoHeight: Self.logoHeight,
             logoWidth: Self.logoWidth,
             logoBottomSpacing: duoViewport == nil ? Self.logoBottomSpacing : 24,
-            duoAlignment: duoViewport != nil
+            duoAlignment: duoViewport != nil,
+            isGrid: cityViewPreference == .cards
         )
 
         return header
@@ -1665,6 +2058,7 @@ private final class CityListLogoHeaderView: UICollectionReusableView {
     private var bottomConstraint: NSLayoutConstraint?
     private var centerXConstraint: NSLayoutConstraint?
     private var duoAlignment = false
+    private var isGrid = false
 
     override func preferredLayoutAttributesFitting(_ layoutAttributes: UICollectionViewLayoutAttributes) -> UICollectionViewLayoutAttributes {
         guard duoAlignment else { return super.preferredLayoutAttributesFitting(layoutAttributes) }
@@ -1705,7 +2099,9 @@ private final class CityListLogoHeaderView: UICollectionReusableView {
     }
 
     override func layoutSubviews() {
-        if duoAlignment {
+        if isGrid {
+            if centerXConstraint?.constant != 0 { centerXConstraint?.constant = 0 }
+        } else if duoAlignment {
             if centerXConstraint?.constant != 3 { centerXConstraint?.constant = 3 }
         } else if let collectionView = superview as? UICollectionView,
            let cell = collectionView.visibleCells.first {
@@ -1726,8 +2122,9 @@ private final class CityListLogoHeaderView: UICollectionReusableView {
         setNeedsLayout()
     }
 
-    func configure(topInset: CGFloat, logoHeight: CGFloat, logoWidth: CGFloat, logoBottomSpacing: CGFloat, duoAlignment: Bool = false) {
+    func configure(topInset: CGFloat, logoHeight: CGFloat, logoWidth: CGFloat, logoBottomSpacing: CGFloat, duoAlignment: Bool = false, isGrid: Bool = false) {
         self.duoAlignment = duoAlignment
+        self.isGrid = isGrid
         topConstraint?.constant = topInset
         heightConstraint?.constant = logoHeight
         widthConstraint?.constant = logoWidth
@@ -1739,6 +2136,16 @@ private final class CityListReorderCollectionCell: UICollectionViewCell {
     static let reuseIdentifier = "CityListReorderCollectionCell"
     private var duoCardHeight: CGFloat?
     private var usesResolvedPaneSafeArea = false
+    private var openDetailsAccessibilityAction: (() -> Void)?
+    fileprivate var actionPresentation = CardsActionPresentation()
+    private var presentedCityID: City.ID?
+    private var presentedStyle: CityViewPreference?
+
+    override func accessibilityActivate() -> Bool {
+        guard let action = openDetailsAccessibilityAction else { return super.accessibilityActivate() }
+        action()
+        return true
+    }
 
     override var safeAreaInsets: UIEdgeInsets {
         // The Duo pane already resolves its safe area. Propagating the changing
@@ -1770,6 +2177,19 @@ private final class CityListReorderCollectionCell: UICollectionViewCell {
     override func prepareForReuse() {
         super.prepareForReuse()
         setLifted(false, animated: false)
+        accessibilityCustomActions = nil
+        openDetailsAccessibilityAction = nil
+        accessibilityLabel = nil
+        isAccessibilityElement = false
+        contentView.accessibilityElementsHidden = false
+        resetActionPresentation()
+        presentedCityID = nil
+        presentedStyle = nil
+    }
+
+    fileprivate func resetActionPresentation(open: Bool = false) {
+        actionPresentation.invalidateCompletion()
+        actionPresentation = CardsActionPresentation(open: open)
     }
 
     func configure(
@@ -1780,26 +2200,53 @@ private final class CityListReorderCollectionCell: UICollectionViewCell {
         isUserCurrentLocation: Bool,
         cityViewPreference: CityViewPreference,
         cardBackgroundColor: Color,
-        isDuoPresentation: Bool = false
+        isDuoPresentation: Bool = false,
+        cardTheme: AppTheme? = nil,
+        showsActions: Bool = false,
+        onRename: @escaping () -> Void = {},
+        onDelete: @escaping () -> Void = {},
+        onOpenDetails: @escaping () -> Void = {}
     ) {
-        if usesResolvedPaneSafeArea != isDuoPresentation {
-            usesResolvedPaneSafeArea = isDuoPresentation
+        if presentedCityID != city.id || presentedStyle != cityViewPreference {
+            resetActionPresentation(open: cityViewPreference == .cards && showsActions)
+            presentedCityID = city.id
+            presentedStyle = cityViewPreference
+        }
+        let resolvesSafeArea = isDuoPresentation || cityViewPreference == .cards
+        if usesResolvedPaneSafeArea != resolvesSafeArea {
+            usesResolvedPaneSafeArea = resolvesSafeArea
             setNeedsLayout()
         }
-        duoCardHeight = isDuoPresentation ? (cityViewPreference == .compact ? 88 : 140) : nil
-        let resolvedTheme = AppTheme.forColorScheme(traitCollection.userInterfaceStyle == .dark ? .dark : .light)
+        duoCardHeight = cityViewPreference == .cards ? 200 : (isDuoPresentation ? (cityViewPreference == .compact ? 88 : 140) : nil)
+        let resolvedTheme = cardTheme ?? AppTheme.forColorScheme(traitCollection.userInterfaceStyle == .dark ? .dark : .light)
+        let content = CityCardView(
+            city: city,
+            selectedInstant: selectedInstant,
+            referenceTimeZone: referenceTimeZone,
+            isCurrent: isCurrent,
+            isUserCurrentLocation: isUserCurrentLocation,
+            cityViewPreference: cityViewPreference,
+            cardBackgroundColor: cardBackgroundColor,
+            showsActions: showsActions,
+            actionPresentation: cityViewPreference == .cards ? actionPresentation : nil,
+            onRename: onRename,
+            onDelete: onDelete,
+            onOpenDetails: onOpenDetails
+        )
+        let isGrid = cityViewPreference == .cards
+        isAccessibilityElement = isGrid
+        contentView.accessibilityElementsHidden = isGrid
+        accessibilityTraits = isGrid ? .button : []
+        accessibilityLabel = isGrid ? content.accessibilitySummary : nil
+        openDetailsAccessibilityAction = isGrid ? onOpenDetails : nil
+        accessibilityCustomActions = isGrid ? [
+            UIAccessibilityCustomAction(name: "Rename") { _ in onRename(); return true },
+            UIAccessibilityCustomAction(name: "Delete") { _ in onDelete(); return true },
+            UIAccessibilityCustomAction(name: "City Details") { _ in onOpenDetails(); return true }
+        ] : nil
         contentConfiguration = UIHostingConfiguration {
-            let card = CityCardView(
-                city: city,
-                selectedInstant: selectedInstant,
-                referenceTimeZone: referenceTimeZone,
-                isCurrent: isCurrent,
-                isUserCurrentLocation: isUserCurrentLocation,
-                cityViewPreference: cityViewPreference,
-                cardBackgroundColor: cardBackgroundColor
-            )
-            .environment(\.appTheme, resolvedTheme)
-            if isDuoPresentation {
+            let card = content.environment(\.appTheme, resolvedTheme)
+            if isDuoPresentation || cityViewPreference == .cards {
                 card.ignoresSafeArea(.container)
             } else {
                 card

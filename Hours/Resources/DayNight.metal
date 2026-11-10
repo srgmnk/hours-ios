@@ -37,14 +37,14 @@ vertex LightVertex cityLightVertex(uint vertexID [[vertex_id]], uint instance [[
     float2 point = (light.positionAndVisibility.xy + float2(cycle, 0) - u.viewport.xy) / u.viewport.zw * a.viewport.xy;
     const float2 corners[] = {float2(-1,-1), float2(1,-1), float2(-1,1),
                              float2(-1,1), float2(1,-1), float2(1,1)};
-    // One-point circle with a one-pixel antialias fringe, not a glow.
-    float2 local = corners[vertexID] * (a.viewport.z * 0.5f + 0.5f);
+    // The immutable Figma sprite already includes core, glow and blur padding.
+    float2 local = corners[vertexID] * (a.viewport.z * 0.5f);
     float2 uv = (point + local) / a.viewport.xy;
     float alpha = light.positionAndVisibility.z * a.color.a;
-    return {float4(uv * float2(2,-2) + float2(-1,1), 0, 1), local, float4(a.color.rgb, alpha)};
+    return {float4(uv * float2(2,-2) + float2(-1,1), 0, 1), corners[vertexID] * 0.5f + 0.5f, float4(a.color.rgb, alpha)};
 }
-fragment float4 cityLightFragment(LightVertex in [[stage_in]], constant LightUniforms &a [[buffer(1)]]) {
-    float coverage = clamp(a.viewport.z * 0.5f + 0.5f - length(in.local), 0.0f, 1.0f);
-    float alpha = in.color.a * coverage;
-    return float4(in.color.rgb * alpha, alpha);
+fragment float4 cityLightFragment(LightVertex in [[stage_in]], texture2d<float> sprite [[texture(0)]]) {
+    constexpr sampler linearSampler(coord::normalized, address::clamp_to_edge, filter::linear);
+    // Premultiplied source-over; selectedInstant controls the entire light's fade.
+    return sprite.sample(linearSampler, in.local) * in.color.a;
 }

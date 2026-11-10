@@ -13,6 +13,7 @@ struct WorldMapObservedContent: View {
     var isPresentationVisible: Bool = true
     var visualViewport: CGRect? = nil
     var usesDuoDrawingContainer: Bool = false
+    var interactionViewport: CGRect? = nil
     var onCitySelected: (City.ID) -> Void = { _ in }
     var body: some View {
         // Read both sources here, rather than capturing snapshots in a deferred
@@ -22,10 +23,14 @@ struct WorldMapObservedContent: View {
             horizontalPosition: $horizontalPosition,
             cities: cityStore.cities,
             selectedInstant: viewModel.selectedInstant,
+            // Resolve persisted Primary identity, as in City Details and the clock.
+            // Resolve it before coordinate filtering or marker grouping.
+            primaryCityID: cityStore.cities.primaryCity?.id,
             geometryProfile: geometryProfile,
             isPresentationVisible: isPresentationVisible,
             visualViewport: visualViewport,
             usesDuoDrawingContainer: usesDuoDrawingContainer,
+            interactionViewport: interactionViewport,
             onCitiesSelected: { ids in
                 if let id = ids.first { onCitySelected(id) }
             }

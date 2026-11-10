@@ -33,7 +33,7 @@ xcrun swiftc -swift-version 5 -default-isolation MainActor -parse-as-library \
   Hours/Models/City.swift Hours/Features/Cities/CityStore.swift Hours/Features/Cities/CityTimeFormatter.swift Hours/Features/Settings/AppTimeFormatPreference.swift \
   Hours/Features/Cities/Search/CitySearchItem.swift Hours/Features/Cities/Search/CitySearchDeduplicator.swift Hours/Features/Cities/Search/CityTimeZoneCompatibility.swift \
   Hours/Services/Location/LocalCityCoordinates.swift Hours/Services/Location/LegacyCityCoordinateResolver.swift \
-  Hours/Features/WorldMap/OriginalDecorativeCityIDs.swift Hours/Features/WorldMap/NightCityLights.swift Hours/Services/SolarPosition.swift \
+  Hours/Features/WorldMap/DecorativeCityIDs.swift Hours/Features/WorldMap/OriginalDecorativeCityIDs.swift Hours/Features/WorldMap/NightCityLights.swift Hours/Services/SolarPosition.swift \
   "$work/Provider.swift" "$work/Rows.swift" "$work/StoreIdentityProbe.swift" "$work/Projection.swift" \
   Tests/CitySearch/MapKitFakes.swift "$work/ExistingRegressionTests.swift" Tests/CatalogIntegration/IsolatedCityStoreFixture.swift Tests/CatalogIntegration/IntegrationTests.swift \
   -o "$work/tests"

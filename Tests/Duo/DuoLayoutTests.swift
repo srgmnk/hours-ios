@@ -64,14 +64,14 @@ import XCTest
     }
     func testInnerMeasurements() {
         let c = DuoLayoutConfiguration.resolve(input(.fullyOpen))
-        XCTAssertEqual(c.map, CGRect(x: 0, y: 0, width: 527, height: 669))
-        XCTAssertEqual(c.list, CGRect(x: 527, y: 0, width: 340, height: 669))
-        XCTAssertEqual(c.wheelCenter, CGPoint(x: 263.5, y: 815))
+        XCTAssertEqual(c.map, CGRect(x: 0, y: 0, width: 475.5, height: 669))
+        XCTAssertEqual(c.list, CGRect(x: 475.5, y: 0, width: 391.5, height: 669))
+        XCTAssertEqual(c.wheelCenter, CGPoint(x: 237.75, y: 815))
         XCTAssertEqual(c.wheelClip, c.map)
         XCTAssertEqual(c.controls, CGRect(x: 879, y: 124, width: 48, height: 106))
         XCTAssertEqual(c.mapDrawingFrame, c.map)
         XCTAssertNil(c.mapVisualViewport)
-        XCTAssertEqual(c.blurFrame, CGRect(x: 0, y: 574, width: 527, height: 95))
+        XCTAssertEqual(c.blurFrame, CGRect(x: 0, y: 574, width: 475.5, height: 95))
     }
 
     func testCompactSettingsHeaderRequiresSettledFullyOpenDuo() {
@@ -160,7 +160,7 @@ import XCTest
             }
         }
     }
-    func testPartialAndFullyOpenTransitionsKeepTheirOwnProportions() {
+    func testPartialAndFullyOpenTransitionsFollowRealWindowResizing() {
         let fullInput = input(.fullyOpen)
         let full = DuoLayoutConfiguration.resolve(fullInput)
         var previous = full
@@ -175,6 +175,100 @@ import XCTest
         let closed = DuoLayoutConfiguration.resolve(input(.closed, width: 466, height: 678), previous: previous)
         XCTAssertEqual(closed, DuoLayoutConfiguration.resolve(input(.closed, width: 466, height: 678)))
     }
+    func testLandscapePosturesShareWindowMidpointWithoutDoubleSubtractingRail() {
+        for right in [true, false] {
+            for size in [CGSize(width: 951, height: 669), CGSize(width: 1023.5, height: 620.5)] {
+                let fullInput = input(.fullyOpen, width: size.width, height: size.height, right: right)
+                let full = DuoLayoutConfiguration.resolve(fullInput)
+                var partialInput = fullInput; partialInput.hinge.receive(.partiallyOpen)
+                partialInput.divisions = [CGRect(x: size.width / 2 - 20, y: 0, width: 40, height: size.height)]
+                var previous = full
+                for _ in 0..<20 {
+                    for next in [partialInput, fullInput] {
+                        let current = DuoLayoutConfiguration.resolve(next, previous: previous)
+                        XCTAssertEqual(current.arrangement, .inner)
+                        XCTAssertFalse(current.isTransition)
+                        XCTAssertEqual(current.map, full.map)
+                        XCTAssertEqual(current.list, full.list)
+                        XCTAssertEqual(current.listViewport, full.listViewport)
+                        XCTAssertEqual(current.mapDrawingFrame, full.mapDrawingFrame)
+                        XCTAssertEqual(current.wheelCenter, full.wheelCenter)
+                        XCTAssertEqual(current.deltaCenter, full.deltaCenter)
+                        XCTAssertEqual(current.blurFrame, full.blurFrame)
+                        XCTAssertEqual(current.controls, full.controls)
+                        XCTAssertEqual(current.map.maxX, next.bounds.midX)
+                        XCTAssertEqual(current.map.width + (right ? 0 : current.rail.width), size.width / 2)
+                        XCTAssertEqual(current.list.width + (right ? current.rail.width : 0), size.width / 2)
+                        XCTAssertEqual(current.map.width + current.list.width + current.rail.width, size.width)
+                        previous = current
+                    }
+                }
+                // Full-layout history must not make a narrow Split View pane a split.
+                var split = input(.fullyOpen, width: 469, height: 669, right: right)
+                split.hinge.receive(.unavailable)
+                XCTAssertEqual(DuoLayoutConfiguration.resolve(split, previous: full).arrangement, .outer)
+            }
+        }
+    }
+
+    func testLandscapeStatusAndDivisionDeliveryNeverSelectSinglePane() {
+        for right in [true, false] {
+            var full = input(.fullyOpen, right: right)
+            let settled = DuoLayoutConfiguration.resolve(full)
+            var partial = full; partial.hinge.receive(.partiallyOpen)
+            let seam = CGRect(x: full.bounds.midX - 20, y: full.bounds.minY, width: 40, height: full.bounds.height)
+            var partialWithSeam = partial; partialWithSeam.divisions = [seam]
+            var fullWithSeam = full; fullWithSeam.divisions = [seam]
+            var missingStatus = partialWithSeam; missingStatus.hinge.receive(.unavailable)
+            var previous = settled
+            // Both independent delivery orders, in both directions, plus nil status.
+            for next in [partial, partialWithSeam, fullWithSeam, missingStatus, full,
+                         fullWithSeam, partialWithSeam, missingStatus, partial, full] {
+                let current = DuoLayoutConfiguration.resolve(next, previous: previous)
+                XCTAssertEqual(current.arrangement, .inner)
+                XCTAssertEqual(current.map, settled.map)
+                XCTAssertEqual(current.listViewport, settled.listViewport)
+                XCTAssertEqual(current.mapRenderingViewport, settled.mapRenderingViewport)
+                XCTAssertEqual(current.mapDrawingFrame, settled.mapDrawingFrame)
+                XCTAssertEqual(current.wheelCenter, settled.wheelCenter)
+                XCTAssertEqual(current.controls, settled.controls)
+                if !next.divisions.isEmpty {
+                    XCTAssertFalse(current.mapViewport.intersects(seam), "Touch clearance is retained")
+                }
+                previous = current
+            }
+            // Genuine size changes still resolve from current bounds.
+            full.bounds.size.width = 1000; full.safeContent.size.width = 916
+            if right { full.occlusions = [CGRect(x: 916, y: 0, width: 84, height: 124)] }
+            let resized = DuoLayoutConfiguration.resolve(full, previous: previous)
+            XCTAssertEqual(resized.map.maxX, 500)
+            XCTAssertNotEqual(resized.mapRenderingViewport, settled.mapRenderingViewport)
+        }
+    }
+
+    func testLandscapeSeamAllowanceDoesNotAcceptOcclusionsOrUnknownDivisions() {
+        var full = input(.fullyOpen)
+        let previous = DuoLayoutConfiguration.resolve(full)
+        for division in [CGRect(x: 400, y: 0, width: 40, height: 669),
+                         CGRect(x: 455.5, y: 0, width: 60, height: 669),
+                         CGRect(x: 455.5, y: 0, width: 40, height: 300)] {
+            full.divisions = [division]
+            XCTAssertEqual(DuoLayoutConfiguration.resolve(full, previous: previous).arrangement, .outer)
+        }
+        full.divisions = [CGRect(x: 455.5, y: 0, width: 40, height: 669)]
+        full.occlusions.append(CGRect(x: 0, y: 0, width: 476, height: 669))
+        XCTAssertEqual(DuoLayoutConfiguration.resolve(full, previous: previous).arrangement, .outer)
+        var conventional = full; conventional.hinge = DuoHingeState()
+        XCTAssertEqual(DuoLayoutConfiguration.resolve(conventional, previous: previous).arrangement, .conventional)
+        var narrow = input(.fullyOpen, width: 469, height: 669)
+        narrow.divisions = [CGRect(x: narrow.bounds.midX - 20, y: 0, width: 40, height: 669)]
+        XCTAssertEqual(DuoLayoutConfiguration.resolve(narrow, previous: previous).arrangement, .outer)
+        var smallerPartial = input(.partiallyOpen, width: 740, height: 400)
+        smallerPartial.divisions = [CGRect(x: 350, y: 0, width: 40, height: 400)]
+        let smaller = DuoLayoutConfiguration.resolve(smallerPartial)
+        XCTAssertEqual(smaller.mapRenderingViewport, smaller.mapViewport)
+    }
+
     func testPartialProportionsSurviveMissingHingeAndGeometry() {
         var i = input(.partiallyOpen, width: 669, height: 951)
         let partial = DuoLayoutConfiguration.resolve(i)
@@ -257,7 +351,9 @@ import XCTest
             XCTAssertEqual(c.controls, previous.controls.map { right ? $0 : CGRect(x: 24, y: 124, width: 48, height: 106) })
             XCTAssertFalse(c.map.intersects(c.rail))
             XCTAssertFalse(c.list.intersects(c.rail))
-            XCTAssertEqual(c.mapVisualViewport?.width, c.map.width)
+            XCTAssertNil(c.mapVisualViewport)
+            XCTAssertEqual(c.mapRenderingViewport, c.map)
+            XCTAssertEqual(c.mapInteractionViewport?.width, c.mapViewport.width)
             XCTAssertEqual(DuoLayoutConfiguration.resolve(i), c)
         }
         i = input(.fullyOpen, width: 466, height: 678)

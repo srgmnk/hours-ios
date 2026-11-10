@@ -17,7 +17,10 @@ enum WorldMapLabelPlacement {
         let gap = 4 * scale
         let clearance = 2 * scale
         let candidates = items.map { item -> [CGPoint] in
-            let label = item.labelBounds, dot = item.dotBounds
+            // Inputs are already in rendered screen points. Anchor moved labels
+            // 4 pt inside the conservative shadow bounds; collision rectangles
+            // below still use the complete labelBounds. The default stays zero.
+            let label = item.labelBounds.insetBy(dx: 4, dy: 4), dot = item.dotBounds
             let above = dot.minY - gap - label.maxY
             let below = dot.maxY + gap - label.minY
             let left = dot.minX - gap - label.maxX

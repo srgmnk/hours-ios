@@ -12,6 +12,7 @@ struct WorldMapView: View {
     @Binding var horizontalPosition: CGFloat
     let cities: [City]
     let selectedInstant: Date
+    var primaryCityID: City.ID? = nil
     var geometryProfile: WorldMapGeometryProfile = .conventional
     var isPresentationVisible: Bool = true
     /// Optional drawing bounds in the logical viewport's coordinates. This is
@@ -21,6 +22,8 @@ struct WorldMapView: View {
     /// Constant for the lifetime of the Duo presentation, including inner mode.
     /// Conventional maps retain their original frame-and-clip modifier chain.
     var usesDuoDrawingContainer: Bool = false
+    /// Optional touch region within the viewport, independent of the camera.
+    var interactionViewport: CGRect? = nil
     var onCitiesSelected: ([City.ID]) -> Void = { _ in }
 
     @AppStorage(AppTimeFormatPreference.storageKey) private var timeFormatPreference = AppTimeFormatPreference.system.rawValue
@@ -31,11 +34,13 @@ struct WorldMapView: View {
             horizontalPosition: $horizontalPosition,
             cities: cities,
             selectedInstant: selectedInstant,
+            primaryCityID: primaryCityID,
             timeFormatPreference: timeFormatPreference,
             localeIdentifier: locale.identifier,
             geometryProfile: geometryProfile,
             isPresentationVisible: isPresentationVisible,
             visualViewport: visualViewport,
+            interactionViewport: interactionViewport,
             onCitiesSelected: onCitiesSelected
         )
             .frame(
@@ -60,11 +65,13 @@ private struct WorldMapScrollAdapter: UIViewRepresentable {
     @Binding var horizontalPosition: CGFloat
     let cities: [City]
     let selectedInstant: Date
+    let primaryCityID: City.ID?
     let timeFormatPreference: String
     let localeIdentifier: String
     let geometryProfile: WorldMapGeometryProfile
     let isPresentationVisible: Bool
     let visualViewport: CGRect?
+    let interactionViewport: CGRect?
     let onCitiesSelected: ([City.ID]) -> Void
 
     func makeUIView(context: Context) -> WorldMapScrollView {
@@ -80,12 +87,13 @@ private struct WorldMapScrollAdapter: UIViewRepresentable {
 
     func updateUIView(_ view: WorldMapScrollView, context: Context) {
         view.onCitiesSelected = onCitiesSelected
-        view.updatePresentation(profile: geometryProfile, visible: isPresentationVisible, visualViewport: visualViewport)
+        view.updatePresentation(profile: geometryProfile, visible: isPresentationVisible, visualViewport: visualViewport,
+                                interactionViewport: interactionViewport)
         view.updatePosition(horizontalPosition) { horizontalPosition = $0 }
         guard isPresentationVisible else { return }
         view.updateIllumination(at: selectedInstant)
         view.updateNightLights(cities)
-        view.updateMarkers(cities, at: selectedInstant, timeFormatPreference: timeFormatPreference, localeIdentifier: localeIdentifier)
+        view.updateMarkers(cities, at: selectedInstant, timeFormatPreference: timeFormatPreference, localeIdentifier: localeIdentifier, primaryCityID: primaryCityID)
     }
 }
 
@@ -129,9 +137,11 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
     private var lastGroupingViewport = CGSize.zero
     private var lastPlacementItems: [WorldMapLabelPlacement.Item] = []
     private var lastPlacementDots: [CGRect] = []
+    private var lastPlacementPeriod: CGFloat = 0
     private var lastPlacementScale: CGFloat = 0
     private var placementOffsets: [CGPoint] = []
     private var lastCities: [City] = []
+    private var lastPrimaryCityID: City.ID?
     private var lastInstant: Date?
     private var lastTimeFormatPreference: String?
     private var lastLocaleIdentifier: String?
@@ -144,8 +154,13 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
     private var geometryProfile: WorldMapGeometryProfile = .conventional
     private var isPresentationVisible = true
     private var visualViewport: CGRect?
+    private var interactionViewport: CGRect?
 
-    func updatePresentation(profile: WorldMapGeometryProfile, visible: Bool, visualViewport: CGRect? = nil) {
+    func updatePresentation(profile: WorldMapGeometryProfile, visible: Bool, visualViewport: CGRect? = nil,
+                            interactionViewport: CGRect? = nil) {
+        // Updating only a hinge touch margin requires no layout, camera update,
+        // text placement, or changes to native scrolling/gesture delegates.
+        self.interactionViewport = interactionViewport
         if self.visualViewport != visualViewport {
             self.visualViewport = visualViewport
             // SwiftUI clips the expanded drawing frame at the display edge.
@@ -165,6 +180,11 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
         accessibilityElementsHidden = !visible
         dayNightOverlay?.setPresentationVisible(visible)
         if visible { setNeedsLayout() }
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard super.point(inside: point, with: event) else { return false }
+        return interactionViewport?.contains(CGPoint(x: point.x - bounds.minX, y: point.y - bounds.minY)) ?? true
     }
 
     override init(frame: CGRect) {
@@ -339,7 +359,7 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
     }
 
     private func cityIDs(at point: CGPoint) -> [City.ID] {
-        guard isPresentationVisible, bounds.contains(point) else { return [] }
+        guard isPresentationVisible, self.point(inside: point, with: nil) else { return [] }
         let canvasPoint = CGPoint(x: point.x, y: point.y - repeatedCanvas.frame.minY)
         return WorldMapHitTesting.cityIDs(at: canvasPoint, dots: hitDots, labels: hitLabels,
                                          period: mapCanvas.bounds.width)
@@ -368,7 +388,10 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
     }
 
     private func presentCityChooser(_ ids: [City.ID]) -> Bool {
-        guard window != nil, cityChooser == nil else { return false }
+        guard window != nil, cityChooser?.presentingViewController == nil else { return false }
+        // A dismissed alert can remain allocated after its transition completes.
+        // Use UIKit's presentation relationship and the mounted host below,
+        // rather than the weak reference's lifetime, to prevent stacked choosers.
         // Resolve the actual mounted UIKit host, not a SwiftUI presentation
         // modifier captured inside the deferred map builder.
         var responder: UIResponder? = self
@@ -449,9 +472,10 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
         return element
     }
 
-    func updateMarkers(_ cities: [City], at instant: Date, timeFormatPreference: String, localeIdentifier: String) {
+    func updateMarkers(_ cities: [City], at instant: Date, timeFormatPreference: String, localeIdentifier: String, primaryCityID: City.ID? = nil) {
         let citiesChanged = cities != lastCities
-        guard citiesChanged || instant != lastInstant || timeFormatPreference != lastTimeFormatPreference ||
+        let primaryChanged = primaryCityID != lastPrimaryCityID
+        guard citiesChanged || primaryChanged || instant != lastInstant || timeFormatPreference != lastTimeFormatPreference ||
                 localeIdentifier != lastLocaleIdentifier else { return }
 
         if citiesChanged {
@@ -468,10 +492,12 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
             for marker in reusable.values.joined() { marker.removeFromSuperview() }
             lastCities = cities
         }
-        var labelsChanged = citiesChanged
+        var labelsChanged = citiesChanged || primaryChanged
         for marker in markers {
+            marker.setPrimary(marker.cityID == primaryCityID)
             if marker.updateTime(at: instant) { labelsChanged = true }
         }
+        lastPrimaryCityID = primaryCityID
         lastInstant = instant
         lastTimeFormatPreference = timeFormatPreference
         lastLocaleIdentifier = localeIdentifier
@@ -481,7 +507,9 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
     private func layoutMarkers() {
         let side = mapCanvas.bounds.width
         guard side > 0 else { return }
-        let scale = side / 1129
+        // Screen-point reference from the approved 527 x 669 Duo landscape.
+        // Artwork scale controls geographic positions, never marker ink dimensions.
+        let scale = WorldMapMarkerView.labelScale
         for marker in markers {
             marker.transform = CGAffineTransform(scaleX: scale, y: scale)
             // The geographic anchor is the dot's center: (width / 2, 6) in the
@@ -489,6 +517,9 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
             marker.center = CGPoint(x: marker.normalizedPoint.x * side,
                                     y: marker.normalizedPoint.y * side + 22 * scale)
         }
+        // Co-located ordinary pins must not cover the Primary center. Every city
+        // still has exactly one view and retains its own selection identity.
+        for marker in markers where marker.isPrimary { mapCanvas.bringSubviewToFront(marker) }
         layoutSharedLabels(scale: scale)
         layoutRepetition()
         cacheInteractionGeometry()
@@ -517,12 +548,9 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
 
     private func layoutSharedLabels(scale: CGFloat) {
         let inputs = markers.map { marker in
-            let point = CGPoint(x: marker.normalizedPoint.x * mapCanvas.bounds.width,
-                                y: marker.normalizedPoint.y * mapCanvas.bounds.height)
             return WorldMapLabelGrouping.Input(
                 cityID: marker.cityID, name: marker.displayName, time: marker.displayedTime,
-                dotBounds: CGRect(x: point.x - 6 * scale, y: point.y - 6 * scale,
-                                  width: 12 * scale, height: 12 * scale),
+                dotBounds: marker.convert(marker.dotBounds, to: mapCanvas),
                 labelBounds: marker.convert(marker.defaultLabelBounds, to: mapCanvas)
             )
         }
@@ -531,7 +559,24 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
         lastGroupingInputs = inputs
         lastGroupingViewport = bounds.size
         // The complete orange-dot footprint must fit inside one two-line text block.
-        let groups = WorldMapLabelGrouping.groups(inputs, maximumSpan: 40 * scale, periodWidth: mapCanvas.bounds.width)
+        let geographicScale = mapCanvas.bounds.width / 1129
+        let groupingRatio = geographicScale / scale
+        // Preserve Stage 6A membership in its existing geographic reference space.
+        // Stage 6B and interaction caches below use the actual screen-sized ink.
+        let groupingInputs = zip(inputs, markers).map { input, marker in
+            let anchor = CGPoint(x: input.dotBounds.midX, y: input.dotBounds.midY)
+            func referenceBounds(_ rect: CGRect) -> CGRect {
+                CGRect(x: anchor.x + (rect.minX - anchor.x) * groupingRatio,
+                       y: anchor.y + (rect.minY - anchor.y) * groupingRatio,
+                       width: rect.width * groupingRatio, height: rect.height * groupingRatio)
+            }
+            return WorldMapLabelGrouping.Input(cityID: input.cityID, name: input.name, time: input.time,
+                                               dotBounds: CGRect(x: anchor.x - 6 * geographicScale, y: anchor.y - 6 * geographicScale,
+                                                                 width: 12 * geographicScale, height: 12 * geographicScale),
+                                               labelBounds: referenceBounds(marker.convert(marker.groupingLabelBounds, to: mapCanvas)))
+        }
+        let groups = WorldMapLabelGrouping.groups(groupingInputs, maximumSpan: 40 * geographicScale,
+                                                 periodWidth: mapCanvas.bounds.width)
         for marker in markers { marker.setLabelsHidden(false) }
         while sharedLabels.count > groups.count { sharedLabels.removeLast().removeFromSuperview() }
         // 200 reference points accommodates two ordinary names; reserve the existing
@@ -554,7 +599,7 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
             label.configure(name: name, time: inputs[group[0]].time)
             let footprint = WorldMapLabelGrouping.footprint(group, inputs: inputs, periodWidth: mapCanvas.bounds.width)
             label.transform = CGAffineTransform(scaleX: scale, y: scale)
-            label.center = CGPoint(x: footprint.midX, y: footprint.maxY + (4 + 20) * scale)
+            label.center = CGPoint(x: footprint.midX, y: footprint.maxY + (4 + label.bounds.height / 2) * scale)
             mapCanvas.bringSubviewToFront(label)
             for member in group { markers[member].setLabelsHidden(true) }
         }
@@ -585,11 +630,12 @@ private final class WorldMapScrollView: UIScrollView, UIScrollViewDelegate {
         let items = units.map(\.item), dots = inputs.map(\.dotBounds)
         // Strings may change while measured ink and Stage 6A membership do not.
         // Reapply cached offsets after text sizing, without solving again.
-        if items != lastPlacementItems || dots != lastPlacementDots || scale != lastPlacementScale {
+        if items != lastPlacementItems || dots != lastPlacementDots || scale != lastPlacementScale || mapCanvas.bounds.width != lastPlacementPeriod {
             placementOffsets = WorldMapLabelPlacement.offsets(for: items, dots: dots, scale: scale, periodWidth: mapCanvas.bounds.width)
             lastPlacementItems = items
             lastPlacementDots = dots
             lastPlacementScale = scale
+            lastPlacementPeriod = mapCanvas.bounds.width
         }
         for (unit, offset) in zip(units, placementOffsets) {
             switch unit.target {
@@ -614,15 +660,19 @@ private enum WorldMapProjection {
 }
 
 private final class WorldMapMarkerView: UIView {
+    static let labelScale = CGFloat(1022) / 1129
     let cityID: City.ID
     private(set) var normalizedPoint = CGPoint.zero
     private(set) var displayName = ""
     private(set) var displayedTime = ""
     private var timeZone = TimeZone(secondsFromGMT: 0)!
-    private let indicator = UIImageView(image: UIImage(named: "worldmap-marker"))
+    private let indicator = UIImageView(image: UIImage(named: "worldmap-pin"))
+    private(set) var isPrimary = false
     private let nameLabel = WorldMapMarkerLabel()
     private let timeLabel = WorldMapMarkerLabel()
     private var labelOffset = CGPoint.zero
+    private var groupingNameSize = CGSize.zero
+    private var groupingTimeSize = CGSize.zero
 
     init(cityID: City.ID) {
         self.cityID = cityID
@@ -648,6 +698,7 @@ private final class WorldMapMarkerView: UIView {
         timeZone = city.timeZone
         displayName = city.displayName
         nameLabel.attributedText = Self.label(displayName, size: 14)
+        groupingNameSize = Self.groupingTextSize(displayName, size: 14)
         accessibilityLabel = displayName
         sizeLabels()
     }
@@ -658,6 +709,7 @@ private final class WorldMapMarkerView: UIView {
         guard text != displayedTime else { return false }
         displayedTime = text
         timeLabel.attributedText = Self.label(text, size: 18)
+        groupingTimeSize = Self.groupingTextSize(text, size: 18)
         accessibilityValue = text
         sizeLabels()
         return true
@@ -667,6 +719,21 @@ private final class WorldMapMarkerView: UIView {
         nameLabel.isHidden = hidden
         timeLabel.isHidden = hidden
     }
+
+    func setPrimary(_ primary: Bool) {
+        guard isPrimary != primary else { return }
+        isPrimary = primary
+        indicator.image = UIImage(named: primary ? "worldmap-primary-pin" : "worldmap-pin")
+        sizeLabels()
+    }
+
+    // Pin ink stays in screen points under the established parent transform.
+    // Figma: 8/16 fill + 2 outside stroke = 12/20.
+    var dotBounds: CGRect {
+        let diameter: CGFloat = (isPrimary ? 20 : 12) / Self.labelScale
+        return CGRect(x: bounds.midX - diameter / 2, y: 6 - diameter / 2, width: diameter, height: diameter)
+    }
+    private var titleTop: CGFloat { 6 + (isPrimary ? 14 : 8) / Self.labelScale }
 
     func setLabelOffset(_ offset: CGPoint) {
         let delta = CGPoint(x: offset.x - labelOffset.x, y: offset.y - labelOffset.y)
@@ -680,9 +747,18 @@ private final class WorldMapMarkerView: UIView {
     var placedLabelBounds: CGRect { defaultLabelBounds.offsetBy(dx: labelOffset.x, dy: labelOffset.y) }
 
     var defaultLabelBounds: CGRect {
-        // Match the centered attributed-string drawing, including its 1-point outline.
-        [nameLabel, timeLabel].enumerated().reduce(CGRect.null) { result, entry in
-            let size = entry.element.attributedText?.size() ?? .zero
+        placedLabelBoundsForFrames.offsetBy(dx: -labelOffset.x, dy: -labelOffset.y)
+    }
+
+    private var placedLabelBoundsForFrames: CGRect {
+        nameLabel.inkBounds.union(timeLabel.inkBounds)
+    }
+
+    // Historical membership metrics are cached only when text changes. New ink
+    // affects collision placement, never the geographic grouping thresholds.
+    var groupingLabelBounds: CGRect {
+        [groupingNameSize, groupingTimeSize].enumerated().reduce(CGRect.null) { result, entry in
+            let size = entry.element
             return result.union(CGRect(x: bounds.midX - size.width / 2,
                                        y: CGFloat(26 + entry.offset * 20) - size.height / 2,
                                        width: size.width, height: size.height))
@@ -690,23 +766,49 @@ private final class WorldMapMarkerView: UIView {
     }
 
     private func sizeLabels() {
-        let width = ceil(max(57, nameLabel.attributedText?.size().width ?? 0,
-                             timeLabel.attributedText?.size().width ?? 0)) + 2
+        let padding = WorldMapMarkerLabel.drawingPadding
+        let width = ceil(max(57, nameLabel.textSize.width, timeLabel.textSize.width)) + 2 * padding
         bounds = CGRect(x: 0, y: 0, width: width, height: 56)
-        // Figma's 32×32 export includes shadow padding; its 12-point dot starts at (10, 6).
-        indicator.frame = CGRect(x: width / 2 - 16, y: -6, width: 32, height: 32)
-        nameLabel.frame = CGRect(x: labelOffset.x, y: 16 + labelOffset.y, width: width, height: 20)
-        timeLabel.frame = CGRect(x: labelOffset.x, y: 36 + labelOffset.y, width: width, height: 20)
+        // Pin frames and the geographic anchor are unchanged.
+        let extent: CGFloat = isPrimary ? 36 : 28
+        let anchorY: CGFloat = isPrimary ? 14 : 10
+        indicator.frame = CGRect(x: width / 2 - extent / 2 / Self.labelScale,
+                                 y: 6 - anchorY / Self.labelScale,
+                                 width: extent / Self.labelScale, height: extent / Self.labelScale)
+        nameLabel.frame = CGRect(x: labelOffset.x, y: titleTop - padding + labelOffset.y,
+                                 width: width, height: 20 / Self.labelScale + 2 * padding)
+        timeLabel.frame = nameLabel.frame.offsetBy(dx: 0, dy: 18 / Self.labelScale)
     }
 
     static func label(_ text: String, size: CGFloat) -> NSAttributedString {
-        // Figma: SF Pro Semibold and -4% tracking; colors follow app appearance.
-        NSAttributedString(string: text, attributes: [
-            .font: UIFont.systemFont(ofSize: size, weight: .semibold),
-            .kern: -0.04 * size,
+        // Figma 746:10090/10091: SF Pro Rounded, 14 Semibold / 18 Bold,
+        // -2% / -4% tracking. Compensate the existing parent transform so the
+        // font, outline and shadow are exact screen-point sizes in every layout.
+        let pointSize = size / labelScale
+        let font = UIFont.systemFont(ofSize: pointSize, weight: size == 18 ? .bold : .semibold)
+        var descriptor = font.fontDescriptor.withDesign(.rounded) ?? font.fontDescriptor
+        if size == 18 {
+            // Match CityCardView.monospacedDigit() without changing other glyphs.
+            descriptor = descriptor.addingAttributes([.featureSettings: [
+                [UIFontDescriptor.FeatureKey.type: kNumberSpacingType,
+                 UIFontDescriptor.FeatureKey.selector: kMonospacedNumbersSelector]
+            ]])
+        }
+        let rounded = UIFont(descriptor: descriptor, size: pointSize)
+        return NSAttributedString(string: text, attributes: [
+            .font: rounded,
+            .kern: (size == 14 ? -0.02 : -0.04) * pointSize,
             .foregroundColor: WorldMapMarkerLabel.fillColor
         ])
     }
+
+    private static func groupingTextSize(_ text: String, size: CGFloat) -> CGSize {
+        NSAttributedString(string: text, attributes: [
+            .font: UIFont.systemFont(ofSize: size, weight: .semibold),
+            .kern: -0.04 * size
+        ]).size()
+    }
+
 }
 
 
@@ -810,45 +912,38 @@ private final class WorldMapSharedLabelView: UIView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    var labelBounds: CGRect {
-        [nameLabel, timeLabel].reduce(CGRect.null) { result, label in
-            let size = label.attributedText?.size() ?? .zero
-            return result.union(CGRect(x: label.frame.midX - size.width / 2,
-                                       y: label.frame.midY - size.height / 2,
-                                       width: size.width, height: size.height))
-        }.insetBy(dx: -1, dy: -1)
-    }
+    var labelBounds: CGRect { nameLabel.inkBounds.union(timeLabel.inkBounds) }
 
     func configure(name: String, time: String) {
         nameLabel.attributedText = WorldMapMarkerView.label(name, size: 14)
         timeLabel.attributedText = WorldMapMarkerView.label(time, size: 18)
-        let width = ceil(max(57, nameLabel.attributedText?.size().width ?? 0,
-                             timeLabel.attributedText?.size().width ?? 0)) + 2
-        bounds = CGRect(x: 0, y: 0, width: width, height: 40)
-        nameLabel.frame = CGRect(x: 0, y: 0, width: width, height: 20)
-        timeLabel.frame = CGRect(x: 0, y: 20, width: width, height: 20)
+        let scale = WorldMapMarkerView.labelScale
+        let padding = WorldMapMarkerLabel.drawingPadding
+        let width = ceil(max(57, nameLabel.textSize.width, timeLabel.textSize.width)) + 2 * padding
+        bounds = CGRect(x: 0, y: 0, width: width, height: 38 / scale)
+        nameLabel.frame = CGRect(x: 0, y: -padding, width: width, height: 20 / scale + 2 * padding)
+        timeLabel.frame = nameLabel.frame.offsetBy(dx: 0, dy: 18 / scale)
     }
+
 }
 
 private final class WorldMapMarkerLabel: UILabel {
-    static let fillColor = UIColor { traits in
-        traits.userInterfaceStyle == .dark ? .white : .black
-    }
-    private static let outlineColor = UIColor { traits in
-        (traits.userInterfaceStyle == .dark ? UIColor.black : .white).withAlphaComponent(0.5)
-    }
+    static let fillColor = UIColor.white
+    private static let outlineColor = UIColor.black.withAlphaComponent(0.3)
+    // Space for the 1-point outside stroke and 4-point shadow at (0, 2).
+    static let drawingPadding: CGFloat = 7 / WorldMapMarkerView.labelScale
     private var outlineText: NSAttributedString?
-    private var textSize = CGSize.zero
+    private(set) var textSize = CGSize.zero
 
-    override init(frame: CGRect) {
-        super.init(frame: frame)
-        registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (label: WorldMapMarkerLabel, _) in
-            // Repaint the existing backing; appearance does not invalidate layout.
-            label.setNeedsDisplay()
-        }
+    // Measured ink plus effects, in the parent's coordinates. Hit testing and
+    // collision placement share this cached text measurement.
+    var inkBounds: CGRect {
+        let scale = WorldMapMarkerView.labelScale
+        let text = CGRect(x: frame.midX - textSize.width / 2, y: frame.midY - textSize.height / 2,
+                          width: textSize.width, height: textSize.height)
+        let stroke = text.insetBy(dx: -1 / scale, dy: -1 / scale)
+        return stroke.union(stroke.offsetBy(dx: 0, dy: 2 / scale).insetBy(dx: -4 / scale, dy: -4 / scale))
     }
-
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     override var attributedText: NSAttributedString? {
         didSet {
@@ -860,7 +955,7 @@ private final class WorldMapMarkerLabel: UILabel {
             let outline = NSMutableAttributedString(attributedString: text)
             outline.addAttributes([
                 .strokeColor: Self.outlineColor,
-                .strokeWidth: 200 / font.pointSize
+                .strokeWidth: 200 / (font.pointSize * WorldMapMarkerView.labelScale)
             ], range: NSRange(location: 0, length: text.length))
             outlineText = outline
         }
@@ -872,15 +967,20 @@ private final class WorldMapMarkerLabel: UILabel {
         let origin = CGPoint(x: rect.midX - textSize.width / 2, y: rect.midY - textSize.height / 2)
         context.saveGState()
         defer { context.restoreGState() }
-        // Miter joins create long spikes at acute glyph corners (notably M).
-        // A rounded 2-point centered stroke stays within the measured 1-point
-        // outer outline; the unchanged fill is painted over its inner half.
+        let scale = WorldMapMarkerView.labelScale
         context.setLineJoin(.round)
         context.setMiterLimit(1)
+        context.setShadow(offset: CGSize(width: 0, height: 2 / scale), blur: 4 / scale,
+                          color: UIColor.black.withAlphaComponent(0.3).cgColor)
+        // One shadow for the composed glyph, rather than doubling it for fill
+        // and outline. Painting the fill last leaves exactly 1 pt outside.
+        context.beginTransparencyLayer(auxiliaryInfo: nil)
         outlineText.draw(at: origin)
         text.draw(at: origin)
+        context.endTransparencyLayer()
     }
 }
+
 
 /// Repeats one layer tree, sharing the image texture and all marker/text backing.
 private final class WorldMapRepeatingView: UIView {

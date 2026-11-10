@@ -21,8 +21,8 @@ import SwiftUI
     }
 
     func testExistingPreferencesSurviveSettingsRecreation() {
-        XCTAssertEqual(CityViewPreference.allCases, [.basic, .compact])
-        XCTAssertNil(CityViewPreference(rawValue: "cards"))
+        XCTAssertEqual(CityViewPreference.allCases, [.basic, .compact, .cards])
+        XCTAssertEqual(CityViewPreference(rawValue: "cards"), .cards)
         for city in CityViewPreference.allCases {
             for appearance in AppAppearancePreference.allCases {
                 for time in AppTimeFormatPreference.allCases {

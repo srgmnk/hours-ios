@@ -3,9 +3,11 @@ import Foundation
 enum WorldMapGeometryProfile: Equatable {
     case conventional
     case duoInner
+    case duoInnerPortrait
     case duoOuter
 
     static let duoInitialCenter: CGFloat = (474 + 527 / 2) / 1022
+    static let duoPortraitInitialCenter: CGFloat = (669 / 2 - 1) / 668
 
     // Keep the approved fully open crop as the geographic reference. A shared
     // Mercator Y means the same latitude even when canvas scales differ.
@@ -27,6 +29,12 @@ enum WorldMapGeometryProfile: Equatable {
         case .duoInner:
             let scale = max(viewport.width / 527, viewport.height / 669)
             return (1022 * scale, -97 * scale)
+        case .duoInnerPortrait:
+            // Portrait-only refinement: uniform 10% artwork enlargement and a
+            // 80-point upward refinement from the previous +40-point shift.
+            // All geographic layers share this canvas; the panel and wheel stay fixed.
+            let scale = max(viewport.width / 669, viewport.height / 476)
+            return (668 * scale * 1.10, -53 * scale + 40 - 80)
         }
     }
 }

@@ -103,7 +103,7 @@ import SwiftUI
         XCTAssertGreaterThan(checkedGaps, 60)
     }
 
-    func testPartialCardsFillTheirPaneDespiteInheritedRailInset() async throws {
+    func testLandscapeCardsFillTheirSharedPaneDespiteInheritedRailInset() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
@@ -116,30 +116,42 @@ import SwiftUI
         controller.didMove(toParent: parent)
         let cities = (0..<8).map { City(name: "Width \($0)", timeZoneID: "UTC", canonicalID: "width-test-\($0)") }
         let list = controller.collectionView
-        for partial in [true, false, true, false] {
-            let width: CGFloat = partial ? 455.5 : 340
-            controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 669)
-            controller.prepareDuoLayout(viewport: controller.view.bounds.size)
-            controller.apply(cities: cities, selectedInstant: Date(timeIntervalSince1970: 1793250000),
-                             userCurrentLocationItem: nil, cityViewPreference: .basic,
-                             topInset: 25, bottomInset: 34, cardBackgroundColor: Color(uiColor: .magenta))
-            list.setContentOffset(.zero, animated: false)
-            controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
-            try await Task.sleep(for: .milliseconds(100))
-            list.layoutIfNeeded()
-            XCTAssertTrue(controller.collectionView === list)
-            if partial { XCTAssertGreaterThan(list.safeAreaInsets.right, 0) }
-            let cell = try XCTUnwrap(list.cellForItem(at: IndexPath(item: 0, section: 0)))
-            let tolerance: CGFloat = 1 / window.traitCollection.displayScale
-            XCTAssertEqual(cell.frame.minX, 8, accuracy: tolerance)
-            XCTAssertEqual(list.bounds.width - cell.frame.maxX, 8, accuracy: tolerance)
-            XCTAssertEqual(cell.frame.width, width - 16, accuracy: tolerance)
-            XCTAssertEqual(cell.frame.height, 140, accuracy: tolerance)
-            XCTAssertEqual(cell.frame.minY, 64, accuracy: tolerance)
-            list.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
-            list.layoutIfNeeded()
-            XCTAssertGreaterThan(list.contentOffset.y, 0)
-            XCTAssertFalse(list.visibleCells.isEmpty)
+        for style in [CityViewPreference.basic, .compact] {
+            for partial in [true, false, true, false] {
+                var hinge = DuoHingeState(); hinge.receive(partial ? .partiallyOpen : .fullyOpen)
+                let configuration = DuoLayoutConfiguration.resolve(.init(
+                    hinge: hinge, bounds: CGRect(x: 0, y: 0, width: 951, height: 669),
+                    safeContent: CGRect(x: 0, y: 0, width: 867, height: 635), railOnRight: true,
+                    occlusions: [CGRect(x: 867, y: 0, width: 84, height: 124)],
+                    divisions: partial ? [CGRect(x: 455.5, y: 0, width: 40, height: 669)] : []))
+                let width = configuration.listViewport.width
+                XCTAssertEqual(width, 391.5)
+                parent.view.layoutIfNeeded()
+                // Mount against the parent's right edge so the native rail inset
+                // actually reaches this child, rather than stopping outside its frame.
+                controller.view.frame = CGRect(x: parent.view.bounds.maxX - width, y: 0, width: width, height: 669)
+                controller.prepareDuoLayout(viewport: controller.view.bounds.size)
+                controller.apply(cities: cities, selectedInstant: Date(timeIntervalSince1970: 1793250000),
+                                 userCurrentLocationItem: nil, cityViewPreference: style,
+                                 topInset: 25, bottomInset: 34, cardBackgroundColor: Color(uiColor: .magenta))
+                list.setContentOffset(.zero, animated: false)
+                controller.view.setNeedsLayout(); controller.view.layoutIfNeeded()
+                try await Task.sleep(for: .milliseconds(100))
+                list.layoutIfNeeded()
+                XCTAssertTrue(controller.collectionView === list)
+                XCTAssertGreaterThan(list.safeAreaInsets.right, 0)
+                let cell = try XCTUnwrap(list.cellForItem(at: IndexPath(item: 0, section: 0)))
+                let tolerance: CGFloat = 1 / window.traitCollection.displayScale
+                XCTAssertEqual(cell.frame.minX, 8, accuracy: tolerance)
+                XCTAssertEqual(list.bounds.width - cell.frame.maxX, 8, accuracy: tolerance)
+                XCTAssertEqual(cell.frame.width, width - 16, accuracy: tolerance)
+                XCTAssertEqual(cell.frame.height, style == .basic ? 140 : 88, accuracy: tolerance)
+                XCTAssertEqual(cell.frame.minY, 64, accuracy: tolerance)
+                list.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
+                list.layoutIfNeeded()
+                XCTAssertGreaterThan(list.contentOffset.y, 0)
+                XCTAssertFalse(list.visibleCells.isEmpty)
+            }
         }
     }
 

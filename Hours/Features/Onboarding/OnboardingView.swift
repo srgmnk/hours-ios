@@ -9,8 +9,45 @@ struct OnboardingView: View {
     @AppStorage(OnboardingStorageKey.hasCompleted) private var hasCompletedOnboarding = false
     @Environment(\.appTheme) private var theme
     @State private var currentStep: OnboardingStep = .step1
+    @State private var duoHinge = DuoHingeState()
 
     var body: some View {
+        Group {
+            if #available(iOS 27.1, *), duoHinge.isConfirmed {
+                DuoOnboardingContainer(hinge: duoHinge) { layout in
+                    ZStack {
+                        SheetStyle.appScreenBackground(for: theme)
+                        DuoOnboardingStepView(step: currentStep, layout: layout)
+                            .id(currentStep)
+                            .transition(.opacity)
+                        Button(action: advance) {
+                            Text(currentStep.buttonTitle)
+                                .font(.system(size: 16 * layout.scale, weight: .medium))
+                                .tracking(-0.64 * layout.scale)
+                                .foregroundStyle(theme.textPrimary)
+                                .frame(width: layout.button.width, height: layout.button.height)
+                                .modifier(GlassSurfaceModifier(shape: Capsule()))
+                        }
+                        .buttonStyle(.plain)
+                        .position(x: layout.button.midX, y: layout.button.midY)
+                    }
+                    .frame(width: layout.bounds.width, height: layout.bounds.height)
+                    .clipped()
+                }
+            } else {
+                conventionalPresentation
+            }
+        }
+        .background {
+            DuoHingeObserver { status in duoHinge.receive(status) }
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+
+    // Keep conventional geometry, typography and interaction exactly as before.
+    private var conventionalPresentation: some View {
         GeometryReader { geo in
             let widthScale = geo.size.width / OnboardingLayout.canvasWidth
             let fullHeight = geo.size.height + geo.safeAreaInsets.top + geo.safeAreaInsets.bottom
@@ -60,6 +97,61 @@ struct OnboardingView: View {
                 hasCompletedOnboarding = true
             }
         }
+    }
+}
+
+private struct DuoOnboardingStepView: View {
+    let step: OnboardingStep
+    let layout: DuoOnboardingLayout
+    @Environment(\.appTheme) private var theme
+
+    var body: some View {
+        ZStack {
+            LayeredParallaxIllustrationView(
+                backImageName: step.backImageName,
+                middleImageName: step.middleImageName,
+                frontImageName: step.frontImageName
+            )
+            .frame(width: layout.artwork.width, height: layout.artwork.height)
+            .position(x: layout.artwork.midX, y: layout.artwork.midY)
+            .mask(alignment: .topLeading) {
+                Rectangle()
+                    .frame(width: layout.artworkClip.width, height: layout.artworkClip.height)
+                    .offset(x: layout.artworkClip.minX, y: layout.artworkClip.minY)
+            }
+
+            Image("HoursLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(width: layout.logo.width, height: layout.logo.height)
+                .position(x: layout.logo.midX, y: layout.logo.midY)
+                .accessibilityHidden(true)
+
+            headline(step.headline1, width: step.headline1Width)
+                .position(x: layout.headline1Center.x, y: layout.headline1Center.y)
+            headline(step.headline2, width: step.headline2Width)
+                .position(x: layout.headline2Center.x, y: layout.headline2Center.y)
+        }
+        .frame(width: layout.bounds.width, height: layout.bounds.height)
+        .compositingGroup()
+    }
+
+    private func headline(_ text: String, width: CGFloat) -> some View {
+        // Explicit existing copy breaks, with Figma's 30pt baseline spacing.
+        VStack(spacing: 0) {
+            ForEach(Array(text.split(separator: "\n").enumerated()), id: \.offset) { _, line in
+                Text(String(line))
+                    .font(.system(size: 32 * layout.scale, weight: .medium))
+                    .tracking(-0.96 * layout.scale)
+                    .frame(height: 30 * layout.scale)
+            }
+        }
+        .foregroundStyle(theme.variant == .dark ? theme.textPrimary.opacity(0.9) : Color.black.opacity(0.8))
+        .multilineTextAlignment(.center)
+        .frame(width: width * layout.scale)
+        .fixedSize(horizontal: false, vertical: true)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(text)
     }
 }
 

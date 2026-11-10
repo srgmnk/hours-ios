@@ -21,11 +21,14 @@ for name in ['App/HoursApp.swift', 'SupportingFiles/Info.plist', 'SupportingFile
 # Tests inspect native view identity and geometry. Only access control changes in
 # these disposable source copies; production encapsulation and layout stay intact.
 for path in app.rglob('*.swift'):
-    path.write_text(path.read_text().replace('fileprivate ', '').replace('private ', ''))
+    path.write_text(path.read_text().replace('fileprivate ', '').replace('private ', '').replace('private(set) ', ''))
 (app / 'TestApp.swift').write_text('import SwiftUI\n@main struct DuoTestApp: App { var body: some Scene { WindowGroup { Color.clear } } }\n')
 tests = out / 'UnitTests'; tests.mkdir()
 for path in Path(__file__).parent.glob('*Tests.swift'):
     shutil.copy2(path, tests / path.name)
+fixtures = Path(__file__).parent / 'Fixtures'
+if fixtures.exists():
+    shutil.copytree(fixtures, tests / 'Fixtures')
 objects = {}
 serial = 0
 

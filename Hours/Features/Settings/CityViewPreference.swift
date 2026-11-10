@@ -3,6 +3,7 @@ import Foundation
 enum CityViewPreference: String, CaseIterable, Codable {
     case basic
     case compact
+    case cards
 
     static let storageKey = "cityViewPreference"
 
@@ -12,6 +13,8 @@ enum CityViewPreference: String, CaseIterable, Codable {
             return "Basic"
         case .compact:
             return "Compact"
+        case .cards:
+            return "Cards"
         }
     }
 

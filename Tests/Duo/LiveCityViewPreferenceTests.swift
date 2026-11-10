@@ -11,10 +11,11 @@ import SwiftUI
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first(where: \.isKeyWindow)
         let cities = (0..<30).map { City(name: "City \($0)", timeZoneID: "UTC", canonicalID: "live-\($0)") }
-        for viewport: CGSize? in [nil, CGSize(width: 382, height: 678), CGSize(width: 340, height: 669), CGSize(width: 455, height: 669)] {
+        for viewport: CGSize? in [nil, CGSize(width: 382, height: 678), CGSize(width: 340, height: 669), CGSize(width: 455, height: 669), CGSize(width: 669, height: 475)] {
             defaults.set("basic", forKey: key)
-            let list = CityListReorderUIKitView(cities: .constant(cities), selectedInstant: Date(timeIntervalSince1970: 1735736400), userCurrentLocationItem: nil, topSafeAreaInset: 25, bottomContentInset: 34, onRenameRequested: { _ in }, onCitySelected: { _ in }, duoViewport: viewport)
-            let host = UIHostingController(rootView: list.frame(width: viewport?.width ?? 393, height: 669))
+            let portrait = viewport == CGSize(width: 669, height: 475)
+            let list = CityListReorderUIKitView(cities: .constant(cities), selectedInstant: Date(timeIntervalSince1970: 1735736400), userCurrentLocationItem: nil, topSafeAreaInset: portrait ? 20 : 25, bottomContentInset: 34, onRenameRequested: { _ in }, onCitySelected: { _ in }, duoViewport: viewport, duoShowsLogo: !portrait, duoHorizontalInset: portrait ? 104 : 8)
+            let host = UIHostingController(rootView: list.frame(width: viewport?.width ?? 393, height: viewport?.height ?? 669))
             let window = UIWindow(windowScene: scene)
             window.rootViewController = host; window.makeKeyAndVisible()
             defer { window.isHidden = true; previous?.makeKeyAndVisible() }
@@ -30,7 +31,7 @@ import SwiftUI
             let controller = try XCTUnwrap(find(host))
             let collection = controller.collectionView
             collection.setContentOffset(CGPoint(x: 0, y: 300), animated: false)
-            for style in ["compact", "basic", "compact", "basic"] {
+            for style in ["cards", "compact", "cards", "basic"] {
                 defaults.set(style, forKey: key)
                 try await Task.sleep(for: .milliseconds(200))
                 collection.layoutIfNeeded()
@@ -38,14 +39,14 @@ import SwiftUI
                 XCTAssertEqual(controller.cityViewPreference.rawValue, style)
                 XCTAssertEqual(controller.citiesLocal.map(\.id), cities.map(\.id))
                 XCTAssertGreaterThan(collection.contentOffset.y, 0, "Style changes must not reset the list to the top")
-                let expected: CGFloat = style == "basic" ? 140 : 88
+                let expected: CGFloat = style == "cards" ? 200 : (style == "basic" ? 140 : 88)
                 for index in [0, 4, 20] {
                     collection.scrollToItem(at: IndexPath(item: index, section: 0), at: .top, animated: false)
                     collection.layoutIfNeeded()
                     try await Task.sleep(for: .milliseconds(50))
                     collection.layoutIfNeeded()
                     let a = try XCTUnwrap(collection.layoutAttributesForItem(at: IndexPath(item: index, section: 0)))
-                    let b = try XCTUnwrap(collection.layoutAttributesForItem(at: IndexPath(item: index + 1, section: 0)))
+                    let b = try XCTUnwrap(collection.layoutAttributesForItem(at: IndexPath(item: index + (style == "cards" ? 2 : 1), section: 0)))
                     XCTAssertEqual(a.frame.height, expected, accuracy: 0.5)
                     XCTAssertEqual(b.frame.minY - a.frame.maxY, 8, accuracy: 0.5)
                 }

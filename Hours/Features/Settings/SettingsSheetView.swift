@@ -267,19 +267,13 @@ struct SettingsSheetView: View {
                 SettingsPreferenceOption(
                     title: preference.displayTitle,
                     isSelected: selectedCityViewPreference == preference,
-                    preview: preference == .basic ? .basic : .compact
+                    preview: preference == .basic ? .basic : (preference == .compact ? .compact : .cards)
                 ) {
                     cityViewPreferenceRawValue = preference.rawValue
                     triggerNotificationHaptic(.success)
                 }
                 .accessibilityIdentifier("settings.cityView.\(preference.rawValue)")
             }
-
-            // Intentionally has no CityViewPreference value or selection action.
-            SettingsPreferenceOption(title: "Cards", isSelected: false, preview: .cards) {}
-                .disabled(true)
-                .accessibilityHint("Not available yet")
-                .accessibilityIdentifier("settings.cityView.cards")
         }
         .padding(.horizontal, 9)
         .padding(.vertical, 20)
@@ -403,7 +397,7 @@ struct SettingsSheetView: View {
                 .font(.system(size: 18, weight: .regular))
                 .foregroundStyle(theme.textSubdued)
             
-            Text("built by one person simply because I’d wanted\nit for a long time")
+            Text("Made by D.R.R.S.\nBacause I want it for a long time")
                 .font(.system(size: 14, weight: .regular))
                 .tracking(-0.42)
                 .multilineTextAlignment(.center)

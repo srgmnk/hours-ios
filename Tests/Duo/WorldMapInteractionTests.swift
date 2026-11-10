@@ -117,6 +117,41 @@ import SwiftUI
         }
     }
 
+    func testHingeTouchMarginDoesNotResizeOrRecenterNativeMap() {
+        let map = map([city("A")], profile: .duoInner, size: CGSize(width: 475.5, height: 669))
+        let originalBounds = map.bounds, originalOffset = map.contentOffset
+        let originalCenter = map.normalizedCenter, originalCanvas = map.repeatedImage.frame
+        let labels = map.hitLabels.map(\.bounds), placement = map.placementOffsets
+        let delegate = map.markerTap.delegate
+        for _ in 0..<20 {
+            for margin: CGRect? in [CGRect(x: 0, y: 0, width: 455.5, height: 669), nil] {
+                map.updatePresentation(profile: .duoInner, visible: true, interactionViewport: margin)
+                map.layoutIfNeeded()
+                XCTAssertEqual(map.bounds, originalBounds); XCTAssertEqual(map.contentOffset, originalOffset)
+                XCTAssertEqual(map.normalizedCenter, originalCenter); XCTAssertEqual(map.repeatedImage.frame, originalCanvas)
+                XCTAssertEqual(map.hitLabels.map(\.bounds), labels); XCTAssertEqual(map.placementOffsets, placement)
+                XCTAssertTrue(map.markerTap.delegate === delegate)
+                let safe = CGPoint(x: map.bounds.minX + 450, y: 200)
+                let seam = CGPoint(x: map.bounds.minX + 465, y: 200)
+                XCTAssertTrue(map.point(inside: safe, with: nil))
+                XCTAssertEqual(map.point(inside: seam, with: nil), margin == nil)
+                // Include a marker in the excluded margin to exercise selection,
+                // not just the native view's hit-test boundary.
+                let target = CGRect(x: seam.x - 6, y: seam.y - map.repeatedCanvas.frame.minY - 6, width: 12, height: 12)
+                let dots = map.hitDots; map.hitDots = [.init(cityIDs: ["A"], bounds: target)]
+                XCTAssertEqual(map.cityIDs(at: seam), margin == nil ? ["A"] : [])
+                map.hitDots = dots
+            }
+        }
+        // Insets are viewport-relative even after native scrolling/recentering.
+        map.updatePresentation(profile: .duoInner, visible: true, interactionViewport: CGRect(x: 0, y: 0, width: 455.5, height: 669))
+        for offset: CGFloat in [100, 3000, -500] {
+            map.bounds.origin.x = offset; map.scrollViewDidScroll(map)
+            XCTAssertTrue(map.point(inside: CGPoint(x: map.bounds.minX + 450, y: 200), with: nil))
+            XCTAssertFalse(map.point(inside: CGPoint(x: map.bounds.minX + 465, y: 200), with: nil))
+        }
+    }
+
     func testAccessibilityActivationAndNoDecorativeCopies() throws {
         let map = map([city("A"), city("B")])
         let elements = try XCTUnwrap(map.accessibilityElements as? [WorldMapAccessibilityElement])
@@ -141,10 +176,11 @@ import SwiftUI
     }
     func testRepeatedChooserDismissalKeepsMainThreadAndMapResponsive() async throws {
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where: \.isKeyWindow)
         let window = UIWindow(windowScene: scene)
         let host = UIViewController()
         window.rootViewController = host; window.makeKeyAndVisible()
-        defer { window.isHidden = true }
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
         let map = map([city("A"), city("B")])
         host.view.addSubview(map)
         for _ in 0..<3 {
@@ -161,6 +197,80 @@ import SwiftUI
             XCTAssertTrue(map.isScrollEnabled)
             map.contentOffset.x += 30
             map.layoutIfNeeded()
+        }
+    }
+
+    func testChooserReopensAcrossGroupsScrollingVisibilityAndAppearances() async throws {
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previous = scene.windows.first(where: \.isKeyWindow)
+        let window = UIWindow(windowScene: scene)
+        let host = UIViewController()
+        window.rootViewController = host; window.makeKeyAndVisible()
+        defer { window.isHidden = true; previous?.makeKeyAndVisible() }
+        let cities = [city("A"), city("B"), city("C", 100.5), city("D", 100.5)]
+        for (profile, size) in [(WorldMapGeometryProfile.conventional, CGSize(width: 393, height: 852)),
+                                (.duoOuter, CGSize(width: 382, height: 678)),
+                                (.duoInner, CGSize(width: 475.5, height: 669)),
+                                (.duoInner, CGSize(width: 455.5, height: 669))] {
+            let map = map(cities, profile: profile, size: size)
+            host.view.addSubview(map)
+            defer { map.removeFromSuperview() }
+            let delegate = map.markerTap.delegate
+            let placement = map.placementOffsets
+            var selections: [[City.ID]] = []
+            // Make delayed UIKit/caller release deterministic. Dismissal must
+            // permit reopening even while an old controller is still allocated.
+            var dismissedChoosers: [UIAlertController] = []
+            map.onCitiesSelected = { selections.append($0) }
+            func presentAndDismiss(_ ids: [City.ID], hideMap: Bool = false) async throws {
+                XCTAssertTrue(map.activateCities(ids))
+                for _ in 0..<10 { XCTAssertFalse(map.activateCities(ids), "Rapid taps cannot stack choosers") }
+                try await Task.sleep(for: .milliseconds(400))
+                let chooser = try XCTUnwrap(host.presentedViewController as? UIAlertController)
+                XCTAssertEqual(chooser.actions.compactMap(\.title), ids + ["Cancel"])
+                XCTAssertTrue(map.cityChooser === chooser)
+                dismissedChoosers.append(chooser)
+                if hideMap {
+                    map.updatePresentation(profile: profile, visible: false)
+                    XCTAssertFalse(map.activateCities(ids))
+                    // Visibility changes dismiss without exposing a completion.
+                    // Wait for UIKit's actual detachment, not an assumed delay.
+                    let dismissed = XCTNSPredicateExpectation(
+                        predicate: NSPredicate(format: "presentedViewController == nil"), object: host)
+                    await fulfillment(of: [dismissed], timeout: 3)
+                } else {
+                    await withCheckedContinuation { continuation in
+                        chooser.dismiss(animated: false) { continuation.resume() }
+                    }
+                }
+            }
+            for style in [UIUserInterfaceStyle.light, .dark] {
+                window.overrideUserInterfaceStyle = style
+                for _ in 0..<3 {
+                    for ids in [["A", "B"], ["A", "B"], ["C", "D"]] {
+                        let center = map.normalizedCenter
+                        map.contentOffset.x += 30; map.scrollViewDidScroll(map); map.layoutIfNeeded()
+                        XCTAssertNotEqual(map.normalizedCenter, center)
+                        try await presentAndDismiss(ids)
+                        XCTAssertNil(host.presentedViewController)
+                        XCTAssertNil(map.cityChooser?.presentingViewController)
+                        XCTAssertTrue(map.markerTap.delegate === delegate)
+                        XCTAssertTrue(map.markerTap.isEnabled)
+                        XCTAssertTrue(map.isScrollEnabled)
+                        XCTAssertTrue(map.isUserInteractionEnabled)
+                        XCTAssertEqual(map.placementOffsets, placement)
+                        XCTAssertTrue(map.activateCities([ids[0]]))
+                        XCTAssertEqual(selections.last, [ids[0]], "City Details callback remains responsive")
+                    }
+                    try await presentAndDismiss(["A", "B"], hideMap: true)
+                    XCTAssertNil(host.presentedViewController)
+                    map.updatePresentation(profile: profile, visible: true)
+                    XCTAssertNil(map.cityChooser)
+                }
+            }
+            withExtendedLifetime(dismissedChoosers) {
+                XCTAssertTrue(dismissedChoosers.allSatisfy { $0.presentingViewController == nil })
+            }
         }
     }
 

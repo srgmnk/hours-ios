@@ -15,10 +15,7 @@ enum CityTimeFormatter {
     }()
 
     private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "d MMM, EEE"
-        return formatter
+        DateFormatter()
     }()
 
 
@@ -51,9 +48,27 @@ enum CityTimeFormatter {
         return TimeComponents(numeric: numeric, meridiem: meridiem)
     }
 
-    static func formatDate(_ instant: Date, in timeZone: TimeZone) -> String {
+    static func formatDate(_ instant: Date, in timeZone: TimeZone,
+                           locale: Locale = CityTimeFormatter.deviceDateLocale()) -> String {
+        // Read device language/region preferences on each render, even when the
+        // app's UI falls back to English. The calendar date still belongs to the city.
+        dateFormatter.locale = locale
+        dateFormatter.calendar = locale.calendar
         dateFormatter.timeZone = timeZone
+        dateFormatter.setLocalizedDateFormatFromTemplate("EEEdMMM")
         return dateFormatter.string(from: instant)
+    }
+
+    static func deviceDateLocale(regionLocale: Locale = .autoupdatingCurrent,
+                                 preferredLocale: Locale? = Locale.preferredLocales.first) -> Locale {
+        guard let preferredLocale else { return regionLocale }
+        var components = Locale.Components(locale: regionLocale)
+        // Change only the language/script: a preferred language can carry a
+        // different region, and must not replace the device's regional choices.
+        components.languageComponents.languageCode = preferredLocale.language.languageCode
+        components.languageComponents.script = preferredLocale.language.script
+        components.calendar = regionLocale.calendar.identifier
+        return Locale(components: components)
     }
 
 

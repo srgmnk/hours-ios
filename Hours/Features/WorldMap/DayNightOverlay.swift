@@ -13,18 +13,22 @@ struct NightUniforms {
     }
 }
 
-/// Shared immutable GPU resources. No image texture or per-update bitmap.
+/// Shared immutable GPU resources. No full-resolution texture or per-update bitmap.
 final class NightRenderer {
     let device: MTLDevice
     let queue: MTLCommandQueue
     let pipeline: MTLRenderPipelineState
     let lightPipeline: MTLRenderPipelineState?
+    let lightTexture: MTLTexture?
     init(device: MTLDevice? = MTLCreateSystemDefaultDevice()) throws {
         guard let device, let queue = device.makeCommandQueue(),
               let library = device.makeDefaultLibrary(),
               let vertex = library.makeFunction(name: "nightVertex"),
               let fragment = library.makeFunction(name: "nightFragment") else { throw Failure.unavailable }
         self.device = device; self.queue = queue
+        // One tiny immutable Figma sprite shared by every light and camera update.
+        // Baking the approved blur avoids any viewport-sized processing or extra pass.
+        lightTexture = Self.makeLightTexture(device: device)
         let descriptor = MTLRenderPipelineDescriptor()
         descriptor.vertexFunction = vertex
         descriptor.fragmentFunction = fragment
@@ -44,6 +48,52 @@ final class NightRenderer {
         lightPipeline = try? device.makeRenderPipelineState(descriptor: lightDescriptor)
     }
     enum Failure: Error { case unavailable }
+
+    private static func makeLightTexture(device: MTLDevice) -> MTLTexture? {
+        guard let image = UIImage(named: "worldmap-night-light")?.cgImage else { return nil }
+        let width = image.width, height = image.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let drawn = pixels.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(data: bytes.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width * 4,
+                                          space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue |
+                                            CGBitmapInfo.byteOrder32Big.rawValue) else { return false }
+            context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return nil }
+        // MTKView's rgba16Float drawable is extended-linear sRGB. Core Graphics
+        // produced premultiplied *encoded* sRGB bytes above. Uploading those as
+        // linear values brightens the translucent glow (and enlarges its visible
+        // footprint). Unpremultiply, decode sRGB, then premultiply in linear space.
+        // Do this once for the tiny shared sprite, never per light or per draw.
+        let linearPixels = linearPremultipliedSprite(pixels)
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float,
+                                                                 width: width, height: height, mipmapped: false)
+        descriptor.usage = .shaderRead
+        guard let texture = device.makeTexture(descriptor: descriptor) else { return nil }
+        linearPixels.withUnsafeBytes { bytes in
+            texture.replace(region: MTLRegionMake2D(0, 0, width, height), mipmapLevel: 0,
+                            withBytes: bytes.baseAddress!, bytesPerRow: width * 8)
+        }
+        return texture
+    }
+
+    private static func linearPremultipliedSprite(_ pixels: [UInt8]) -> [UInt16] {
+        var result = [UInt16](repeating: 0, count: pixels.count)
+        for index in stride(from: 0, to: pixels.count, by: 4) {
+            let alpha = Float(pixels[index + 3]) / 255
+            guard alpha > 0 else { continue }
+            for channel in 0..<3 {
+                let encoded = min(1, Float(pixels[index + channel]) / 255 / alpha)
+                let linear = encoded <= 0.04045 ? encoded / 12.92 : pow((encoded + 0.055) / 1.055, 2.4)
+                result[index + channel] = Float16(linear * alpha).bitPattern
+            }
+            result[index + 3] = Float16(alpha).bitPattern
+        }
+        return result
+    }
     @discardableResult
     func encode(_ uniforms: NightUniforms, pass: MTLRenderPassDescriptor, command: MTLCommandBuffer,
                 lights: MTLBuffer? = nil, count: Int = 0, lightUniforms: LightUniforms = LightUniforms()) -> Bool {
@@ -52,13 +102,14 @@ final class NightRenderer {
         encoder.setRenderPipelineState(pipeline)
         encoder.setFragmentBytes(&uniforms, length: MemoryLayout<NightUniforms>.stride, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
-        if let lights, let lightPipeline, count > 0 {
+        if let lights, let lightPipeline, let lightTexture, count > 0 {
             var lightUniforms = lightUniforms
             encoder.setRenderPipelineState(lightPipeline)
             encoder.setVertexBytes(&uniforms, length: MemoryLayout<NightUniforms>.stride, index: 0)
             encoder.setVertexBuffer(lights, offset: 0, index: 1)
             encoder.setVertexBytes(&lightUniforms, length: MemoryLayout<LightUniforms>.stride, index: 2)
             encoder.setFragmentBytes(&lightUniforms, length: MemoryLayout<LightUniforms>.stride, index: 1)
+            encoder.setFragmentTexture(lightTexture, index: 0)
             let copies = Int(ceil(uniforms.viewport.z)) + 2
             encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6, instanceCount: count * copies)
         }
@@ -72,7 +123,7 @@ struct LightGPU {
 }
 
 struct LightUniforms {
-    var viewport = SIMD4<Float>(0, 0, NightCityLights.Style.diameter, 0) // point size xy, diameter, padding
+    var viewport = SIMD4<Float>(0, 0, NightCityLights.Style.spriteDiameter, 0) // point size xy, sprite diameter, padding
     var color = SIMD4<Float>(NightCityLights.Style.color, NightCityLights.Style.brightness)
 }
 
@@ -221,7 +272,7 @@ final class DayNightOverlay: MTKView, MTKViewDelegate {
 
     private func updateVisibleLights() {
         let camera = uniforms.viewport
-        let margin = Float(2 / max(1, bounds.width)) * camera.z
+        let margin = (NightCityLights.Style.spriteDiameter / 2 / Float(max(1, bounds.width))) * camera.z
         hasVisibleLights = hasCamera && lightData.contains { light in
             let x = light.positionAndVisibility.x - camera.x
             let periodicX = x - floor(x)

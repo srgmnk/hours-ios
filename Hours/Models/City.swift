@@ -281,3 +281,9 @@ struct City: Identifiable, Equatable, Codable {
         set { customDisplayName = newValue }
     }
 }
+
+extension Array where Element == City {
+    // All presentations share the persisted order. Older Cards-only Primary
+    // flags are ignored by decoding and are omitted on the next ordinary save.
+    var primaryCity: City? { first }
+}

@@ -126,7 +126,8 @@ import SwiftUI
             try await Task.sleep(for: .milliseconds(100))
             XCTAssertEqual(overlay.uniforms.style.x, style == .dark ? 0.42 : overlay.lightModeMaximumOpacity, accuracy: 0.0001)
             let resolved = WorldMapMarkerLabel.fillColor.resolvedColor(with: overlay.traitCollection)
-            XCTAssertEqual(resolved, style == .dark ? UIColor.white : UIColor.black)
+            // The approved map redesign uses white labels in both appearances.
+            XCTAssertEqual(resolved, UIColor.white)
         }
         overlay.suspend()
     }
