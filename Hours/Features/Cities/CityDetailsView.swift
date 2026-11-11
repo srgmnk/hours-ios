@@ -207,8 +207,8 @@ struct CityDetailsView: View {
     private let horizontalPadding: CGFloat = 8
     private let cardSpacing: CGFloat = 8
     private let cardCornerRadius: CGFloat = 20
-    private static let weatherProvider = CityWeatherProvider()
     private static let sunEventProvider = CitySunEventProvider()
+    private static var weatherProvider = CityWeatherProvider(sunEventProvider: sunEventProvider)
 
     private var headerTimeTitle: String {
         let formatter = DateFormatter()
@@ -424,6 +424,7 @@ struct CityDetailsView: View {
             )
 
             let resolution = await Self.weatherProvider.resolve(for: request)
+            guard !Task.isCancelled else { return }
             switch resolution {
             case .loaded(let content):
                 weatherCardState = .loaded(content)
@@ -452,8 +453,8 @@ struct CityDetailsView: View {
                 sunCardState = .loaded(
                     SunCardContent(
                         title: presentation.primaryKind.title,
-                        value: overlapTimeText(for: presentation.primaryDate, in: city.timeZone),
-                        secondary: "\(presentation.secondaryKind.title) at \(overlapTimeText(for: presentation.secondaryDate, in: city.timeZone))",
+                        value: CityTimeFormatter.formatTime(presentation.primaryDate, in: city.timeZone),
+                        secondary: "\(presentation.secondaryKind.title) at \(CityTimeFormatter.formatTime(presentation.secondaryDate, in: city.timeZone))",
                         symbolName: presentation.primaryKind.symbolName
                     )
                 )
@@ -510,26 +511,12 @@ struct CityDetailsView: View {
     }
 
     private var bottomLine: some View {
-        HStack(spacing: 4) {
-            if relativeOffsetMinutes != 0 {
-                Text("\(relativeOffsetText) from now,")
-                    .font(.system(size: 14, weight: .regular))
-                    .tracking(-0.42)
-                    .foregroundStyle(theme.textSecondary)
-            }
-
-            HStack(spacing: 4) {
-                Text(timeZoneDisplayText)
-                    .font(.system(size: 14, weight: .regular))
-                    .tracking(-0.42)
-                    .foregroundStyle(theme.textSecondary)
-
-                if shouldShowDSTTag {
-                    DSTBadgeView(cityViewPreference: cityViewPreference)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity)
+        CityDetailsFooter(
+            relativeOffsetText: relativeOffsetMinutes == 0 ? nil : relativeOffsetText,
+            timeZoneDisplayText: timeZoneDisplayText,
+            shouldShowDSTTag: shouldShowDSTTag,
+            cityViewPreference: cityViewPreference
+        )
     }
 
     private var closeButton: some View {
@@ -828,6 +815,7 @@ struct CityDetailsView: View {
                 secondary: content.secondary,
                 symbolName: content.symbolName
             )
+            .minimumScaleFactor(0.65)
         case .error:
             statusInfoCard(
                 title: "Daylight",
@@ -1099,8 +1087,45 @@ private actor CityWeatherProvider {
     }
 
     private var coordinateCache: [String: CoordinatePoint] = [:]
+    private struct ResponseKey: Hashable {
+        let url: URL
+        // past_days/forecast_days are relative to the service's local date.
+        let localDay: Date
+    }
+
+    private struct CachedResponse {
+        let response: OpenMeteoWeatherResponse
+        let fetchedAt: Date
+        var accessOrder: UInt64
+    }
+
+    private var responseCache: [ResponseKey: CachedResponse] = [:]
+    private var inFlightResponses: [ResponseKey: Task<OpenMeteoWeatherResponse, Error>] = [:]
+    private var responseAccessOrder: UInt64 = 0
+    private let responseTTL: TimeInterval = 15 * 60
+    private let responseCapacity = 16
+    private let now: @Sendable () -> Date
+    private let session: URLSession
     private let availabilityWindow: TimeInterval = 24 * 60 * 60
     private let currentWeatherThreshold: TimeInterval = 60
+    private let sunEventProvider: CitySunEventProvider
+
+    init(sunEventProvider: CitySunEventProvider, session: URLSession? = nil,
+         now: @escaping @Sendable () -> Date = { Date() }) {
+        self.sunEventProvider = sunEventProvider
+        self.now = now
+        if let session {
+            self.session = session
+        } else {
+            // Only the bounded response cache below owns weather freshness.
+            // Disable URLCache so an expired entry cannot be served from disk
+            // or from a second HTTP cache with a different lifetime.
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.urlCache = nil
+            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+            self.session = URLSession(configuration: configuration)
+        }
+    }
 
     func resolve(for request: WeatherRequest) async -> WeatherResolution {
         guard abs(request.snapshotDate.timeIntervalSince(request.requestedAt)) <= availabilityWindow else {
@@ -1114,12 +1139,18 @@ private actor CityWeatherProvider {
         }
 
         do {
+            try Task.checkCancellation()
             let response = try await fetchWeather(
                 latitude: coordinate.latitude,
                 longitude: coordinate.longitude,
                 timeZoneID: request.timeZoneID
             )
-            let isDaylight = isDaylight(at: request.snapshotDate, in: timeZone)
+            let isDaylight = await sunEventProvider.isDaylight(
+                at: request.snapshotDate,
+                coordinate: CLLocationCoordinate2D(latitude: coordinate.latitude, longitude: coordinate.longitude),
+                in: timeZone
+            )
+            try Task.checkCancellation()
 
             if abs(request.snapshotDate.timeIntervalSince(request.requestedAt)) <= currentWeatherThreshold,
                let current = response.current {
@@ -1218,13 +1249,85 @@ private actor CityWeatherProvider {
             throw URLError(.badURL)
         }
 
-        let (data, response) = try await URLSession.shared.data(from: url)
+        guard let timeZone = TimeZone(identifier: timeZoneID) else { throw URLError(.badURL) }
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let timestamp = now()
+        let key = ResponseKey(url: url, localDay: calendar.startOfDay(for: timestamp))
+        try Task.checkCancellation()
+        if var cached = responseCache[key], isFresh(cached, at: timestamp) {
+            responseAccessOrder &+= 1
+            cached.accessOrder = responseAccessOrder
+            responseCache[key] = cached
+            return cached.response
+        }
+        responseCache.removeValue(forKey: key)
+
+        let task: Task<OpenMeteoWeatherResponse, Error>
+        if let pending = inFlightResponses[key] {
+            task = pending
+        } else {
+            // One caller cancelling must not cancel other callers' shared fetch.
+            // The fetch may finish into the cache after dismissal; each caller
+            // still checks its own cancellation before using or publishing it.
+            task = Task { try await self.downloadResponse(for: key, timeZone: timeZone) }
+            inFlightResponses[key] = task
+        }
+        let response = try await task.value
+        try Task.checkCancellation()
+        return response
+    }
+
+    private func isFresh(_ cached: CachedResponse, at date: Date) -> Bool {
+        let age = date.timeIntervalSince(cached.fetchedAt)
+        return age >= 0 && age < responseTTL
+    }
+
+    private func downloadResponse(for key: ResponseKey, timeZone: TimeZone) async throws -> OpenMeteoWeatherResponse {
+        // Only the owning fetch removes its in-flight entry or writes the cache;
+        // resumed waiters cannot erase a newer fetch or replace newer data.
+        defer { inFlightResponses.removeValue(forKey: key) }
+        let request = URLRequest(url: key.url, cachePolicy: .reloadIgnoringLocalCacheData)
+        let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse,
               200..<300 ~= httpResponse.statusCode else {
             throw URLError(.badServerResponse)
         }
 
-        return try JSONDecoder().decode(OpenMeteoWeatherResponse.self, from: data)
+        let decoded = try JSONDecoder().decode(OpenMeteoWeatherResponse.self, from: data)
+        guard isValidResponse(decoded, in: timeZone) else { throw URLError(.cannotParseResponse) }
+        let timestamp = now()
+        responseCache = responseCache.filter { isFresh($0.value, at: timestamp) }
+        responseAccessOrder &+= 1
+        responseCache[key] = CachedResponse(response: decoded, fetchedAt: timestamp, accessOrder: responseAccessOrder)
+        if responseCache.count > responseCapacity,
+           let oldest = responseCache.min(by: { $0.value.accessOrder < $1.value.accessOrder })?.key {
+            responseCache.removeValue(forKey: oldest)
+        }
+        return decoded
+    }
+
+    private func isValidResponse(_ response: OpenMeteoWeatherResponse, in timeZone: TimeZone) -> Bool {
+        func validTemperature(_ value: Double) -> Bool {
+            value.isFinite && Int(exactly: value.rounded()) != nil
+        }
+        guard response.current != nil || response.hourly != nil else { return false }
+        if let current = response.current {
+            guard validTemperature(current.temperature2m), validTemperature(current.apparentTemperature) else { return false }
+        }
+        if let hourly = response.hourly {
+            let count = hourly.time.count
+            guard count > 0, hourly.temperature2m.count == count,
+                  hourly.apparentTemperature.count == count, hourly.weatherCode.count == count,
+                  hourly.temperature2m.allSatisfy(validTemperature),
+                  hourly.apparentTemperature.allSatisfy(validTemperature),
+                  // Validate timestamp syntax independently of DST gaps. The
+                  // existing selector skips any nonexistent local hour; do not
+                  // reject otherwise usable current/hourly data because of it.
+                  hourly.time.allSatisfy({ localDate(from: $0, in: TimeZone(secondsFromGMT: 0)!) != nil }),
+                  hourly.time.contains(where: { localDate(from: $0, in: timeZone) != nil }) else { return false }
+        }
+        return true
     }
 
     private func nearestHourlyPoint(
@@ -1276,13 +1379,6 @@ private actor CityWeatherProvider {
 
         formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ss"
         return formatter.date(from: text)
-    }
-
-    private func isDaylight(at date: Date, in timeZone: TimeZone) -> Bool {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let hour = calendar.component(.hour, from: date)
-        return (6..<18).contains(hour)
     }
 
     private func makeCardContent(
@@ -1358,6 +1454,40 @@ private actor CitySunEventProvider {
     private struct SunEvents {
         let sunrise: Date
         let sunset: Date
+    }
+
+    private struct SolarDayKey: Hashable {
+        let latitude: Double
+        let longitude: Double
+        let timeZoneID: String
+        let year: Int
+        let month: Int
+        let day: Int
+    }
+
+    private struct SolarDay {
+        let events: SunEvents?
+        let continuousDaylight: Bool?
+    }
+
+    // Shared by the weather icon and daylight card. These are local calculation
+    // results only; no weather responses or additional coordinates are persisted.
+    private var solarDayCache: [SolarDayKey: SolarDay] = [:]
+
+    func isDaylight(at date: Date, coordinate: CLLocationCoordinate2D, in timeZone: TimeZone) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let day = solarDay(for: date, coordinate: coordinate, timeZone: timeZone, calendar: calendar)
+        if let events = day.events, events.sunrise != events.sunset {
+            if events.sunrise < events.sunset {
+                return date >= events.sunrise && date < events.sunset
+            }
+            // Some high-latitude sunsets occur just after local midnight.
+            return date >= events.sunrise || date < events.sunset
+        }
+        // Invalid/unsupported calculations use the night variant deterministically,
+        // without inventing events or reverting to a fixed clock-hour interval.
+        return day.continuousDaylight ?? false
     }
 
     private var coordinateCache: [String: CLLocationCoordinate2D] = [:]
@@ -1478,6 +1608,50 @@ private actor CitySunEventProvider {
         timeZone: TimeZone,
         calendar: Calendar
     ) -> SunEvents? {
+        solarDay(for: date, coordinate: coordinate, timeZone: timeZone, calendar: calendar).events
+    }
+
+    private func solarDay(
+        for date: Date,
+        coordinate: CLLocationCoordinate2D,
+        timeZone: TimeZone,
+        calendar: Calendar
+    ) -> SolarDay {
+        guard date.timeIntervalSinceReferenceDate.isFinite,
+              CLLocationCoordinate2DIsValid(coordinate) else {
+            return SolarDay(events: nil, continuousDaylight: nil)
+        }
+        let components = calendar.dateComponents([.year, .month, .day], from: date)
+        guard let year = components.year, let month = components.month, let day = components.day else {
+            return SolarDay(events: nil, continuousDaylight: nil)
+        }
+        let key = SolarDayKey(latitude: coordinate.latitude, longitude: coordinate.longitude,
+                              timeZoneID: timeZone.identifier, year: year, month: month, day: day)
+        if let cached = solarDayCache[key] { return cached }
+
+        let events = calculateSunEvents(for: date, coordinate: coordinate, timeZone: timeZone, calendar: calendar)
+        var continuousDaylight: Bool?
+        if events == nil || events?.sunrise == events?.sunset {
+            let century = julianCentury(from: julianDay(year: year, month: month, day: day))
+            let cosine = cosineHourAngleSunrise(latitude: coordinate.latitude,
+                                                 solarDeclination: solarDeclination(for: century))
+            if cosine.isFinite {
+                if cosine <= -1 { continuousDaylight = true }
+                if cosine >= 1 { continuousDaylight = false }
+            }
+        }
+        let result = SolarDay(events: events, continuousDaylight: continuousDaylight)
+        if solarDayCache.count >= 16 { solarDayCache.removeAll(keepingCapacity: true) }
+        solarDayCache[key] = result
+        return result
+    }
+
+    private func calculateSunEvents(
+        for date: Date,
+        coordinate: CLLocationCoordinate2D,
+        timeZone: TimeZone,
+        calendar: Calendar
+    ) -> SunEvents? {
         let components = calendar.dateComponents([.year, .month, .day], from: date)
         guard let year = components.year,
               let month = components.month,
@@ -1485,22 +1659,12 @@ private actor CitySunEventProvider {
             return nil
         }
 
-        let noon = calendar.date(from: DateComponents(
-            timeZone: timeZone,
-            year: year,
-            month: month,
-            day: day,
-            hour: 12
-        )) ?? date
-        let timeZoneOffsetMinutes = Double(timeZone.secondsFromGMT(for: noon)) / 60.0
-
         guard let sunrise = solarEventDate(
             year: year,
             month: month,
             day: day,
             coordinate: coordinate,
             timeZone: timeZone,
-            timeZoneOffsetMinutes: timeZoneOffsetMinutes,
             calendar: calendar,
             isSunrise: true
         ),
@@ -1510,7 +1674,6 @@ private actor CitySunEventProvider {
             day: day,
             coordinate: coordinate,
             timeZone: timeZone,
-            timeZoneOffsetMinutes: timeZoneOffsetMinutes,
             calendar: calendar,
             isSunrise: false
         ) else {
@@ -1526,7 +1689,6 @@ private actor CitySunEventProvider {
         day: Int,
         coordinate: CLLocationCoordinate2D,
         timeZone: TimeZone,
-        timeZoneOffsetMinutes: Double,
         calendar: Calendar,
         isSunrise: Bool
     ) -> Date? {
@@ -1543,13 +1705,15 @@ private actor CitySunEventProvider {
         }
 
         let signedHourAngle = isSunrise ? hourAngle : -hourAngle
-        var localMinutes = 720 - 4 * (coordinate.longitude + signedHourAngle) - equationOfTime + timeZoneOffsetMinutes
-        localMinutes.formTruncatingRemainder(dividingBy: 1_440)
-        if localMinutes < 0 {
-            localMinutes += 1_440
-        }
+        let utcMinutes = 720 - 4 * (coordinate.longitude + signedHourAngle) - equationOfTime
 
-        guard let startOfDay = calendar.date(from: DateComponents(
+        var utcCalendar = Calendar(identifier: .gregorian)
+        utcCalendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        guard let utcMidnight = utcCalendar.date(from: DateComponents(
+            year: year,
+            month: month,
+            day: day
+        )), let localDay = calendar.date(from: DateComponents(
             timeZone: timeZone,
             year: year,
             month: month,
@@ -1558,7 +1722,17 @@ private actor CitySunEventProvider {
             return nil
         }
 
-        return startOfDay.addingTimeInterval(localMinutes * 60)
+        // The astronomical result is UTC minutes, not elapsed time from local
+        // midnight: a local day can contain a DST transition. Near the date line,
+        // the event's UTC date can also differ from its selected local date.
+        let event = utcMidnight.addingTimeInterval(utcMinutes * 60)
+        for dayOffset in [0, -1, 1] {
+            if let candidate = utcCalendar.date(byAdding: .day, value: dayOffset, to: event),
+               calendar.isDate(candidate, inSameDayAs: localDay) {
+                return candidate
+            }
+        }
+        return nil
     }
 
     private func julianDay(year: Int, month: Int, day: Int) -> Double {
@@ -1613,19 +1787,23 @@ private actor CitySunEventProvider {
     }
 
     private func hourAngleSunrise(latitude: Double, solarDeclination: Double) -> Double? {
-        let latitudeRadians = degreesToRadians(latitude)
-        let declinationRadians = degreesToRadians(solarDeclination)
-        let zenithRadians = degreesToRadians(90.833)
-
-        let cosineHourAngle = (
-            cos(zenithRadians) / (cos(latitudeRadians) * cos(declinationRadians))
-        ) - tan(latitudeRadians) * tan(declinationRadians)
-
+        let cosineHourAngle = cosineHourAngleSunrise(latitude: latitude, solarDeclination: solarDeclination)
         guard cosineHourAngle >= -1.0, cosineHourAngle <= 1.0 else {
             return nil
         }
 
         return radiansToDegrees(acos(cosineHourAngle))
+    }
+
+    private func cosineHourAngleSunrise(latitude: Double, solarDeclination: Double) -> Double {
+        let latitudeRadians = degreesToRadians(latitude)
+        let declinationRadians = degreesToRadians(solarDeclination)
+        let zenithRadians = degreesToRadians(90.833)
+
+        return (
+            cos(zenithRadians) / (cos(latitudeRadians) * cos(declinationRadians))
+        ) - tan(latitudeRadians) * tan(declinationRadians)
+
     }
 
     private func geometricMeanLongitudeSun(for julianCentury: Double) -> Double {
@@ -1742,4 +1920,65 @@ private struct CityDetailsView_Previews: PreviewProvider {
         )
         .environment(\.appTheme, .light)
     }
+}
+
+// Uses the existing footer's typography and padding; only its content adapts.
+private struct CityDetailsFooter: View {
+    @Environment(\.appTheme) private var theme
+    @ScaledMetric(relativeTo: .subheadline) private var footerFontSize = 14.0
+
+    let relativeOffsetText: String?
+    let timeZoneDisplayText: String
+    let shouldShowDSTTag: Bool
+    let cityViewPreference: CityViewPreference
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                weatherAttribution.fixedSize()
+                Spacer(minLength: 0)
+                footerTimeZone.fixedSize()
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                weatherAttribution
+                footerTimeZone
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+        }
+        .font(.system(size: footerFontSize, weight: .regular))
+        .tracking(-0.42)
+        .foregroundStyle(theme.textSecondary)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var weatherAttribution: some View {
+        Link("Data by Open-Meteo.com", destination: URL(string: "https://open-meteo.com/")!)
+            .buttonStyle(.plain)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("cityDetails.weatherAttribution")
+    }
+
+    private var footerTimeZone: some View {
+        HStack(spacing: 4) {
+            if let relativeOffsetText {
+                Text("\(relativeOffsetText) from now,")
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            HStack(spacing: 4) {
+                Image(systemName: "globe.europe.africa.fill")
+                    .accessibilityHidden(true)
+
+                Text(timeZoneDisplayText)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if shouldShowDSTTag {
+                    DSTBadgeView(cityViewPreference: cityViewPreference)
+                }
+            }
+        }
+        .accessibilityIdentifier("cityDetails.timeZone")
+    }
+
 }
