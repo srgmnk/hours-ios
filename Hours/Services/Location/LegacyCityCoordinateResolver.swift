@@ -42,6 +42,11 @@ struct LegacyCityCoordinateResolver {
         }
         // Use the existing canonical identity verbatim. Search aliases do not create
         // alternate saved IDs; names, time zones, and raw catalog IDs are not matched.
-        return coordinatesByCanonicalID[city.id]
+        return catalogCoordinate(for: city)
+    }
+
+    /// Exact, unambiguous catalog identity only; never matches names or time zones.
+    func catalogCoordinate(for city: City) -> Coordinate? {
+        coordinatesByCanonicalID[city.id]
     }
 }

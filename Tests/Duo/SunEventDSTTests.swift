@@ -4,14 +4,6 @@ import SwiftUI
 import Vision
 @testable import MapHarness
 
-// The isolated Duo harness exposes private production members in disposable
-// copies. Seed known coordinates so these tests never perform a MapKit request.
-extension CitySunEventProvider {
-    func seedSolarTestCoordinate(_ coordinate: CLLocationCoordinate2D, id: String) {
-        coordinateCache[id] = coordinate
-    }
-}
-
 @MainActor final class SunEventDSTTests: XCTestCase {
     private struct Place {
         let zone: TimeZone
@@ -168,9 +160,9 @@ extension CitySunEventProvider {
     }
 
     private func resolve(_ provider: CitySunEventProvider, _ place: Place, _ selected: Date) async -> DaylightResolution {
-        await provider.seedSolarTestCoordinate(place.coordinate, id: place.zone.identifier)
         return await provider.resolve(for: SunRequest(cityID: place.zone.identifier, cityName: "Fixture",
-            timeZoneID: place.zone.identifier, timeZone: place.zone, snapshotDate: selected,
+            timeZoneID: place.zone.identifier, coordinate: .init(latitude: place.coordinate.latitude, longitude: place.coordinate.longitude),
+            timeZone: place.zone, snapshotDate: selected,
             requestedAt: selected, isReferenceOffsetCity: false))
     }
 

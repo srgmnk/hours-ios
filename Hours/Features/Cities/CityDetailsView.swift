@@ -1,6 +1,6 @@
 import EventKit
 import EventKitUI
-import MapKit
+import CoreLocation
 import SwiftUI
 import UIKit
 import UserNotifications
@@ -46,6 +46,7 @@ private struct SunRequest: Sendable {
     let cityID: String
     let cityName: String
     let timeZoneID: String
+    let coordinate: LocalCityCoordinates.Coordinate?
     let timeZone: TimeZone
     let snapshotDate: Date
     let requestedAt: Date
@@ -56,6 +57,7 @@ private struct WeatherRequest: Sendable {
     let cityID: String
     let cityName: String
     let timeZoneID: String
+    let coordinate: LocalCityCoordinates.Coordinate?
     let snapshotDate: Date
     let requestedAt: Date
     let isReferenceOffsetCity: Bool
@@ -207,6 +209,7 @@ struct CityDetailsView: View {
     private let horizontalPadding: CGFloat = 8
     private let cardSpacing: CGFloat = 8
     private let cardCornerRadius: CGFloat = 20
+    private static let coordinateResolver = LegacyCityCoordinateResolver()
     private static let sunEventProvider = CitySunEventProvider()
     private static var weatherProvider = CityWeatherProvider(sunEventProvider: sunEventProvider)
 
@@ -268,8 +271,16 @@ struct CityDetailsView: View {
         return summary(for: dayType(for: weekday), period: currentTimePeriod)
     }
 
+    private var coordinateSnapshot: LocalCityCoordinates.Coordinate? {
+        // Catalog geography is independent of Apple. Otherwise preserve the point
+        // already associated with this saved city; never infer a new place from text.
+        Self.coordinateResolver.catalogCoordinate(for: city)
+            ?? Self.coordinateResolver.coordinate(for: city)
+    }
+
     private var cardResolutionTaskID: String {
-        "\(city.id)|\(city.timeZoneID)|\(date.timeIntervalSinceReferenceDate)"
+        let location = coordinateSnapshot.map { "\($0.latitude),\($0.longitude)" } ?? "unavailable"
+        return "\(city.id)|\(city.timeZoneID)|\(location)|\(date.timeIntervalSinceReferenceDate)"
     }
 
     private var overlapPresentation: OverlapPresentation {
@@ -352,6 +363,7 @@ struct CityDetailsView: View {
     }
 
     var body: some View {
+        let coordinate = coordinateSnapshot
         NavigationStack {
             GeometryReader { geometry in
                 let bottomPadding = geometry.safeAreaInsets.bottom - 32
@@ -418,6 +430,7 @@ struct CityDetailsView: View {
                 cityID: city.id,
                 cityName: city.name,
                 timeZoneID: city.timeZoneID,
+                coordinate: coordinate,
                 snapshotDate: date,
                 requestedAt: Date(),
                 isReferenceOffsetCity: isZeroOffsetReferenceCity
@@ -441,6 +454,7 @@ struct CityDetailsView: View {
                 cityID: city.id,
                 cityName: city.name,
                 timeZoneID: city.timeZoneID,
+                coordinate: coordinate,
                 timeZone: city.timeZone,
                 snapshotDate: date,
                 requestedAt: Date(),
@@ -448,6 +462,7 @@ struct CityDetailsView: View {
             )
 
             let resolution = await Self.sunEventProvider.resolve(for: request)
+            guard !Task.isCancelled else { return }
             switch resolution {
             case .loaded(let presentation):
                 sunCardState = .loaded(
@@ -1044,11 +1059,6 @@ struct CityDetailsView: View {
 }
 
 private actor CityWeatherProvider {
-    private struct CoordinatePoint {
-        let latitude: Double
-        let longitude: Double
-    }
-
     private struct WeatherPoint {
         let temperatureCelsius: Double
         let apparentTemperatureCelsius: Double
@@ -1086,7 +1096,6 @@ private actor CityWeatherProvider {
         let hourly: HourlySnapshot?
     }
 
-    private var coordinateCache: [String: CoordinatePoint] = [:]
     private struct ResponseKey: Hashable {
         let url: URL
         // past_days/forecast_days are relative to the service's local date.
@@ -1134,7 +1143,9 @@ private actor CityWeatherProvider {
 
         guard !request.isReferenceOffsetCity,
               let timeZone = TimeZone(identifier: request.timeZoneID),
-              let coordinate = await coordinate(for: request) else {
+              let coordinate = request.coordinate,
+              coordinate.latitude.isFinite, coordinate.longitude.isFinite,
+              CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: coordinate.latitude, longitude: coordinate.longitude)) else {
             return .error
         }
 
@@ -1179,45 +1190,6 @@ private actor CityWeatherProvider {
         }
 
         return .error
-    }
-
-    private func coordinate(for request: WeatherRequest) async -> CoordinatePoint? {
-        if let cached = coordinateCache[request.cityID] {
-            return cached
-        }
-
-        let searchRequest = MKLocalSearch.Request()
-        searchRequest.naturalLanguageQuery = request.cityName
-        searchRequest.resultTypes = [.address]
-
-        let response: MKLocalSearch.Response
-        do {
-            response = try await MKLocalSearch(request: searchRequest).start()
-        } catch {
-            return nil
-        }
-
-        let matchingItem =
-            response.mapItems.first(where: { mapItem in
-                let coordinate = mapItem.location.coordinate
-                guard CLLocationCoordinate2DIsValid(coordinate) else {
-                    return false
-                }
-                return mapItem.timeZone?.identifier == request.timeZoneID
-            }) ??
-            response.mapItems.first(where: { mapItem in
-                let coordinate = mapItem.location.coordinate
-                return CLLocationCoordinate2DIsValid(coordinate)
-            })
-
-        guard let coordinate = matchingItem?.location.coordinate,
-              CLLocationCoordinate2DIsValid(coordinate) else {
-            return nil
-        }
-
-        let point = CoordinatePoint(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        coordinateCache[request.cityID] = point
-        return point
     }
 
     private func fetchWeather(
@@ -1475,22 +1447,18 @@ private actor CitySunEventProvider {
     private var solarDayCache: [SolarDayKey: SolarDay] = [:]
 
     func isDaylight(at date: Date, coordinate: CLLocationCoordinate2D, in timeZone: TimeZone) -> Bool {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = timeZone
-        let day = solarDay(for: date, coordinate: coordinate, timeZone: timeZone, calendar: calendar)
-        if let events = day.events, events.sunrise != events.sunset {
-            if events.sunrise < events.sunset {
-                return date >= events.sunrise && date < events.sunset
-            }
-            // Some high-latitude sunsets occur just after local midnight.
-            return date >= events.sunrise || date < events.sunset
-        }
-        // Invalid/unsupported calculations use the night variant deterministically,
-        // without inventing events or reverting to a fixed clock-hour interval.
-        return day.continuousDaylight ?? false
+        guard date.timeIntervalSinceReferenceDate.isFinite,
+              coordinate.latitude.isFinite, coordinate.longitude.isFinite,
+              CLLocationCoordinate2DIsValid(coordinate) else { return false }
+        // Elevation uses the absolute selected instant, independent of local date/DST.
+        // Geometric solar-center elevation: the existing 90.833° zenith includes
+        // the solar radius and standard refraction once, through this threshold.
+        let elevation = SolarPosition(date: date).elevation(
+            latitude: coordinate.latitude, longitude: coordinate.longitude
+        )
+        return elevation.isFinite && elevation >= -0.833
     }
 
-    private var coordinateCache: [String: CLLocationCoordinate2D] = [:]
     private let availabilityWindow: TimeInterval = 10 * 365 * 24 * 60 * 60
 
     func resolve(for request: SunRequest) async -> DaylightResolution {
@@ -1498,11 +1466,14 @@ private actor CitySunEventProvider {
             return .distantTime
         }
 
-        guard !request.isReferenceOffsetCity,
-              let coordinate = await coordinate(for: request) else {
+        guard !Task.isCancelled, !request.isReferenceOffsetCity,
+              let point = request.coordinate,
+              point.latitude.isFinite, point.longitude.isFinite,
+              CLLocationCoordinate2DIsValid(CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)) else {
             return .error
         }
 
+        let coordinate = CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = request.timeZone
 
@@ -1515,91 +1486,56 @@ private actor CitySunEventProvider {
             return .error
         }
 
-        if request.snapshotDate < currentDayEvents.sunrise {
-            return .loaded(SunPresentation(
-                primaryKind: .sunrise,
-                primaryDate: currentDayEvents.sunrise,
-                secondaryKind: .sunset,
-                secondaryDate: currentDayEvents.sunset
-            ))
+        var candidates = [
+            SolarEvent(kind: .sunrise, date: currentDayEvents.sunrise),
+            SolarEvent(kind: .sunset, date: currentDayEvents.sunset)
+        ]
+        // If both remaining events are today, no neighboring calculation is needed.
+        if let presentation = nextPresentation(after: request.snapshotDate, candidates: candidates) {
+            return .loaded(presentation)
         }
 
-        if request.snapshotDate < currentDayEvents.sunset {
-            guard let nextLocalDay = calendar.date(byAdding: .day, value: 1, to: request.snapshotDate),
-                  let nextDayEvents = sunEvents(
-                    for: nextLocalDay,
-                    coordinate: coordinate,
-                    timeZone: request.timeZone,
-                    calendar: calendar
-                  ) else {
-                return .error
-            }
-
-            return .loaded(SunPresentation(
-                primaryKind: .sunset,
-                primaryDate: currentDayEvents.sunset,
-                secondaryKind: .sunrise,
-                secondaryDate: nextDayEvents.sunrise
-            ))
+        // Bound the search to today and tomorrow in the city's calendar. Missing
+        // polar events remain unavailable; do not search months ahead or invent a pair.
+        if let nextLocalDay = calendar.date(byAdding: .day, value: 1,
+                                           to: calendar.startOfDay(for: request.snapshotDate)),
+           let events = sunEvents(for: nextLocalDay, coordinate: coordinate,
+                                  timeZone: request.timeZone, calendar: calendar) {
+            candidates.append(SolarEvent(kind: .sunrise, date: events.sunrise))
+            candidates.append(SolarEvent(kind: .sunset, date: events.sunset))
         }
-
-        guard let nextLocalDay = calendar.date(byAdding: .day, value: 1, to: request.snapshotDate),
-              let nextDayEvents = sunEvents(
-                for: nextLocalDay,
-                coordinate: coordinate,
-                timeZone: request.timeZone,
-                calendar: calendar
-              ) else {
+        guard let presentation = nextPresentation(after: request.snapshotDate, candidates: candidates) else {
             return .error
         }
-
-        return .loaded(SunPresentation(
-            primaryKind: .sunrise,
-            primaryDate: nextDayEvents.sunrise,
-            secondaryKind: .sunset,
-            secondaryDate: nextDayEvents.sunset
-        ))
+        return .loaded(presentation)
     }
 
-    private func coordinate(for request: SunRequest) async -> CLLocationCoordinate2D? {
-        if let cached = coordinateCache[request.cityID] {
-            return cached
-        }
+    private struct SolarEvent {
+        let kind: SunEventKind
+        let date: Date
+    }
 
-        let searchRequest = MKLocalSearch.Request()
-        searchRequest.naturalLanguageQuery = request.cityName
-        searchRequest.resultTypes = [.address]
-
-        let response: MKLocalSearch.Response
-        do {
-            response = try await MKLocalSearch(request: searchRequest).start()
-        } catch {
+    private func nextPresentation(after instant: Date, candidates: [SolarEvent]) -> SunPresentation? {
+        guard instant.timeIntervalSinceReferenceDate.isFinite else { return nil }
+        // An event at the selected instant is complete, matching the existing
+        // sunrise/sunset boundary behavior. Compare absolute instants, never clock hours.
+        let future = candidates.filter {
+            $0.date.timeIntervalSinceReferenceDate.isFinite && $0.date > instant
+        }.sorted { $0.date < $1.date }
+        guard future.count >= 2 else { return nil }
+        let primary = future[0], secondary = future[1]
+        // Do not skip a contradictory event merely to find an alternating pair.
+        // Coincident events (including a third event at the secondary instant)
+        // cannot establish a unique chronological pair.
+        guard primary.date < secondary.date,
+              !future.dropFirst(2).contains(where: { $0.date == secondary.date }) else { return nil }
+        switch (primary.kind, secondary.kind) {
+        case (.sunrise, .sunset), (.sunset, .sunrise):
+            return SunPresentation(primaryKind: primary.kind, primaryDate: primary.date,
+                                   secondaryKind: secondary.kind, secondaryDate: secondary.date)
+        default:
             return nil
         }
-
-        let matchingItem =
-            response.mapItems.first(where: { mapItem in
-                let coordinate = mapItem.location.coordinate
-                guard CLLocationCoordinate2DIsValid(coordinate) else {
-                    return false
-                }
-                return mapItem.timeZone?.identifier == request.timeZoneID
-            }) ??
-            response.mapItems.first(where: { mapItem in
-                let coordinate = mapItem.location.coordinate
-                guard CLLocationCoordinate2DIsValid(coordinate) else {
-                    return false
-                }
-                return true
-            })
-
-        let coordinate = matchingItem?.location.coordinate
-        guard let coordinate, CLLocationCoordinate2DIsValid(coordinate) else {
-            return nil
-        }
-
-        coordinateCache[request.cityID] = coordinate
-        return coordinate
     }
 
     private func sunEvents(

@@ -3,12 +3,6 @@ import CoreLocation
 import SwiftUI
 @testable import MapHarness
 
-extension CityWeatherProvider {
-    func seedWeatherTestCoordinate(_ coordinate: CLLocationCoordinate2D, id: String) {
-        coordinateCache[id] = CoordinatePoint(latitude: coordinate.latitude, longitude: coordinate.longitude)
-    }
-}
-
 extension CitySunEventProvider {
     func weatherTestSolarCacheCount() -> Int { solarDayCache.count }
 }
@@ -73,7 +67,8 @@ nonisolated private final class WeatherFixtureProtocol: URLProtocol, @unchecked 
             calendar.date(from: DateComponents(year: 2026, month: month, day: day, hour: hour, minute: minute))!
         }
         func request(_ date: Date, requestedAt: Date? = nil) -> WeatherRequest {
-            WeatherRequest(cityID: name, cityName: name, timeZoneID: zone.identifier, snapshotDate: date,
+            WeatherRequest(cityID: name, cityName: name, timeZoneID: zone.identifier,
+                           coordinate: .init(latitude: coordinate.latitude, longitude: coordinate.longitude), snapshotDate: date,
                            requestedAt: requestedAt ?? date, isReferenceOffsetCity: false)
         }
     }
@@ -99,10 +94,22 @@ nonisolated private final class WeatherFixtureProtocol: URLProtocol, @unchecked 
         let result = await provider.sunEvents(for: date, coordinate: place.coordinate,
                                               timeZone: place.zone, calendar: place.calendar)
         let events = try XCTUnwrap(result, place.name)
-        for (event, before, at) in [(events.sunrise, false, true), (events.sunset, true, false)] {
-            await assertDaylight(before, provider, place, event.addingTimeInterval(-1))
-            await assertDaylight(at, provider, place, event)
-            await assertDaylight(at, provider, place, event.addingTimeInterval(1))
+        // Card events only bracket a numerical crossing. Independent USNO fixtures
+        // below establish accuracy; this helper checks second-level determinism.
+        for (event, before, after) in [(events.sunrise, false, true), (events.sunset, true, false)] {
+            func day(_ date: Date) -> Bool {
+                SolarPosition(date: date).elevation(latitude: place.coordinate.latitude,
+                    longitude: place.coordinate.longitude) >= -0.833
+            }
+            var low = event.addingTimeInterval(-600), high = event.addingTimeInterval(600)
+            XCTAssertEqual(day(low), before); XCTAssertEqual(day(high), after)
+            for _ in 0..<32 {
+                let middle = low.addingTimeInterval(high.timeIntervalSince(low) / 2)
+                if day(middle) == before { low = middle } else { high = middle }
+            }
+            await assertDaylight(before, provider, place, high.addingTimeInterval(-1))
+            for _ in 0..<5 { await assertDaylight(after, provider, place, high) }
+            await assertDaylight(after, provider, place, high.addingTimeInterval(1))
         }
     }
 
@@ -199,21 +206,359 @@ nonisolated private final class WeatherFixtureProtocol: URLProtocol, @unchecked 
         XCTAssertEqual(count, 0)
     }
 
-    func testSolarCacheIsSharedBoundedAndSeparatedByCoordinatesDateAndZone() async {
+    func testIconClassificationDoesNotPopulateOrAlterCardSolarCache() async {
         let provider = CitySunEventProvider(), place = places[2], date = places[2].date(6, 21)
-        _ = await provider.sunEvents(for: date, coordinate: place.coordinate, timeZone: place.zone, calendar: place.calendar)
         for hour in 0..<24 {
             _ = await provider.isDaylight(at: place.date(6, 21, hour), coordinate: place.coordinate, in: place.zone)
         }
-        var count = await provider.weatherTestSolarCacheCount(); XCTAssertEqual(count, 1)
-        _ = await provider.isDaylight(at: place.date(6, 22), coordinate: place.coordinate, in: place.zone)
-        _ = await provider.isDaylight(at: date, coordinate: places[0].coordinate, in: place.zone)
-        _ = await provider.isDaylight(at: date, coordinate: place.coordinate, in: places[0].zone)
-        count = await provider.weatherTestSolarCacheCount(); XCTAssertEqual(count, 4)
+        var count = await provider.weatherTestSolarCacheCount(); XCTAssertEqual(count, 0)
+        let original = await provider.sunEvents(for: date, coordinate: place.coordinate,
+            timeZone: place.zone, calendar: place.calendar)
+        for zone in [place.zone, TimeZone(secondsFromGMT: 0)!, TimeZone(identifier: "Pacific/Chatham")!] {
+            _ = await provider.isDaylight(at: date, coordinate: place.coordinate, in: zone)
+        }
+        let unchanged = await provider.sunEvents(for: date, coordinate: place.coordinate,
+            timeZone: place.zone, calendar: place.calendar)
+        XCTAssertEqual(original?.sunrise, unchanged?.sunrise)
+        XCTAssertEqual(original?.sunset, unchanged?.sunset)
+        count = await provider.weatherTestSolarCacheCount(); XCTAssertEqual(count, 1)
         for day in 1...31 {
-            _ = await provider.isDaylight(at: place.date(7, day), coordinate: place.coordinate, in: place.zone)
+            _ = await provider.sunEvents(for: place.date(7, day), coordinate: place.coordinate,
+                timeZone: place.zone, calendar: place.calendar)
             count = await provider.weatherTestSolarCacheCount(); XCTAssertLessThanOrEqual(count, 16)
         }
+    }
+
+    func testInvalidDatesAndCoordinatesAndTimeZoneInvariance() async {
+        let provider = CitySunEventProvider(), place = places[2]
+        for seconds in [Double.nan, .infinity, -.infinity] {
+            await assertDaylight(false, provider, place, Date(timeIntervalSinceReferenceDate: seconds))
+        }
+        for coordinate in [CLLocationCoordinate2D(latitude: 0, longitude: .nan),
+                           .init(latitude: .infinity, longitude: 0),
+                           .init(latitude: 0, longitude: 181)] {
+            let day = await provider.isDaylight(at: place.date(6, 21), coordinate: coordinate, in: place.zone)
+            XCTAssertFalse(day)
+        }
+        for month in [3, 6, 9, 12] {
+            for hour in [0, 6, 12, 18, 23] {
+                let date = place.date(month, 21, hour)
+                let expected = await provider.isDaylight(at: date, coordinate: place.coordinate, in: place.zone)
+                for zone in ["Asia/Kathmandu", "Australia/Lord_Howe", "Pacific/Chatham", "America/New_York"] {
+                    let actual = await provider.isDaylight(at: date, coordinate: place.coordinate, in: TimeZone(identifier: zone)!)
+                    XCTAssertEqual(actual, expected)
+                }
+            }
+        }
+    }
+
+    func testFourConfirmedPolarFailuresAgainstUSNO() async {
+        let provider = CitySunEventProvider()
+        let longyearbyen = Place("Longyearbyen", "Arctic/Longyearbyen", 78.22334, 15.64689)
+        let utqiagvik = Place("Utqiagvik", "America/Anchorage", 71.2906, -156.7886)
+        // USNO rstt/oneday, 2026, at the exact coordinates above:
+        // August 25 late sunset 23:56; February 15 daylight 11:58–12:27.
+        // May 11 continuously above; November 19 continuously below the horizon.
+        // https://aa.usno.navy.mil/api/rstt/oneday?date=2026-08-25&coords=78.22334,15.64689&tz=2
+        // https://aa.usno.navy.mil/api/rstt/oneday?date=2026-02-15&coords=78.22334,15.64689&tz=1
+        // https://aa.usno.navy.mil/api/rstt/oneday?date=2026-05-11&coords=71.2906,-156.7886&tz=-8
+        // https://aa.usno.navy.mil/api/rstt/oneday?date=2026-11-19&coords=71.2906,-156.7886&tz=-9
+        for (hour, minute, expected) in [(23, 54, true), (23, 58, false)] {
+            await assertDaylight(expected, provider, longyearbyen, longyearbyen.date(8, 25, hour, minute))
+        }
+        for (hour, minute, expected) in [(11, 56, false), (12, 0, true), (12, 25, true), (12, 29, false)] {
+            await assertDaylight(expected, provider, longyearbyen, longyearbyen.date(2, 15, hour, minute))
+        }
+        for (month, day, expected) in [(5, 11, true), (11, 19, false)] {
+            let start = utqiagvik.date(month, day, 0)
+            for minute in -1...1440 {
+                await assertDaylight(expected, provider, utqiagvik, start.addingTimeInterval(Double(minute * 60)))
+            }
+        }
+        for seconds in [-1.0, 0, 1] {
+            await assertDaylight(false, provider, longyearbyen, longyearbyen.date(8, 26, 0).addingTimeInterval(seconds))
+        }
+    }
+
+    func testIndependentUSNOBoundariesAcrossSixteenLocations() async {
+        // Minute-rounded USNO rstt/oneday references retrieved 2026-11-11.
+        // Reproduce via https://aa.usno.navy.mil/api/rstt/oneday?date=YYYY-MM-DD&coords=LAT,LON&tz=OFFSET
+        // UTC epochs below retain each response's local-date offset. This includes
+        // solstices, equinoxes, DST dates and each normal city's largest audited shift.
+        let fixtures = [
+            Place("Tromso", "Europe/Oslo", 69.6489, 18.95508),
+            Place("Longyearbyen", "Arctic/Longyearbyen", 78.22334, 15.64689),
+            Place("Reykjavik", "Atlantic/Reykjavik", 64.13548, -21.89541),
+            Place("Murmansk", "Europe/Moscow", 68.96778, 33.09922),
+            Place("Ushuaia", "America/Argentina/Ushuaia", -54.81084, -68.31591),
+            Place("London", "Europe/London", 51.50853, -0.12574),
+            Place("New York", "America/New_York", 40.71427, -74.00597),
+            Place("Berlin", "Europe/Berlin", 52.52437, 13.41053),
+            Place("Sydney", "Australia/Sydney", -33.86785, 151.20732),
+            Place("Bangkok", "Asia/Bangkok", 13.75398, 100.50144),
+            Place("Tokyo", "Asia/Tokyo", 35.6895, 139.69171),
+            Place("Kathmandu", "Asia/Kathmandu", 27.70169, 85.3206),
+            Place("Rovaniemi", "Europe/Helsinki", 66.5039, 25.7294),
+            Place("Utqiagvik", "America/Anchorage", 71.2906, -156.7886),
+            Place("Lord Howe", "Australia/Lord_Howe", -31.55, 159.0833),
+            Place("Chatham", "Pacific/Chatham", -43.95, -176.55)
+        ]
+        // place index | reference UTC seconds | R(ise)/S(et)
+        let references = """
+        1|1771153080|R
+        1|1771154820|S
+        1|1771236840|R
+        1|1771243860|S
+        1|1776384480|R
+        1|1776463920|S
+        1|1776469140|R
+        1|1787610540|S
+        1|1787614380|R
+        1|1787694960|S
+        1|1787702700|R
+        1|1787780040|S
+        1|1793009520|R
+        1|1793012940|S
+        0|1768472940|R
+        0|1768475940|S
+        0|1778887920|R
+        0|1778968920|S
+        0|1778973480|R
+        0|1779056820|S
+        0|1779058380|R
+        0|1785018960|S
+        0|1785020760|R
+        0|1795774800|R
+        0|1795776180|S
+        2|1781578620|R
+        2|1781654460|S
+        2|1781664960|R
+        2|1782000180|S
+        2|1782010500|R
+        2|1782604860|S
+        2|1782615660|R
+        2|1797852120|R
+        2|1797866940|S
+        12|1780696800|S
+        12|1780698660|R
+        12|1783375500|S
+        12|1783377540|R
+        12|1797844080|R
+        12|1797852120|S
+        13|1769120640|R
+        13|1769122500|S
+        13|1769205540|R
+        13|1769210460|S
+        13|1785664800|S
+        13|1785668880|R
+        3|1768123980|R
+        3|1768126740|S
+        3|1779312180|S
+        3|1779314700|R
+        3|1784756040|S
+        3|1784758500|R
+        3|1796116920|R
+        3|1796118660|S
+        4|1782046740|R
+        4|1782072660|S
+        4|1797839460|R
+        4|1797901860|S
+        5|1774762980|R
+        5|1774808940|S
+        5|1792910520|R
+        5|1792946820|S
+        6|1772968740|R
+        6|1773010500|S
+        6|1793532360|R
+        6|1793569920|S
+        7|1774759680|R
+        7|1774805700|S
+        7|1792907400|R
+        7|1792943400|S
+        8|1775333400|R
+        8|1775375100|S
+        8|1791055740|R
+        8|1791100800|S
+        9|1781995920|R
+        9|1782042480|S
+        10|1781983560|R
+        10|1782036000|S
+        11|1781997840|R
+        11|1782047820|S
+        14|1775331420|R
+        14|1775373300|S
+        14|1791053880|R
+        14|1791098820|S
+        15|1775326020|R
+        15|1775367000|S
+        15|1790443620|R
+        15|1790488080|S
+        0|1773981840|R
+        0|1774026120|S
+        0|1790051040|R
+        0|1790095680|S
+        0|1790137680|R
+        0|1790181780|S
+        1|1773982320|R
+        1|1774027320|S
+        1|1790051280|R
+        1|1790096880|S
+        1|1790138100|R
+        1|1790182860|S
+        2|1773991680|R
+        2|1774035780|S
+        2|1790061000|R
+        2|1790105280|S
+        2|1790147580|R
+        2|1790191500|S
+        3|1773978480|R
+        3|1774022640|S
+        3|1790047680|R
+        3|1790092260|S
+        3|1790134260|R
+        3|1790178420|S
+        4|1774002900|R
+        4|1774046760|S
+        4|1790072520|R
+        4|1790116260|S
+        4|1790158740|R
+        4|1790202780|S
+        5|1773986580|R
+        5|1774030380|S
+        5|1782013380|R
+        5|1782073260|S
+        5|1790056020|R
+        5|1790099940|S
+        5|1790142480|R
+        5|1790186220|S
+        5|1797840240|R
+        5|1797868380|S
+        6|1774004340|R
+        6|1774048080|S
+        6|1782033900|R
+        6|1782088260|S
+        6|1790073840|R
+        6|1790117580|S
+        6|1790160300|R
+        6|1790203860|S
+        6|1797855420|R
+        6|1797888720|S
+        7|1773983340|R
+        7|1774027140|S
+        7|1782009780|R
+        7|1782070380|S
+        7|1790052720|R
+        7|1790096700|S
+        7|1790139240|R
+        7|1790182980|S
+        7|1797837300|R
+        7|1797864840|S
+        8|1773950280|R
+        8|1773994020|S
+        8|1781989200|R
+        8|1782024840|S
+        8|1790019900|R
+        8|1790063460|S
+        8|1790106240|R
+        8|1790149920|S
+        8|1797792060|R
+        8|1797843900|S
+        9|1773962520|R
+        9|1774006140|S
+        9|1790032020|R
+        9|1790075640|S
+        9|1790118420|R
+        9|1790162040|S
+        9|1797809760|R
+        9|1797850500|S
+        10|1773953160|R
+        10|1773996780|S
+        10|1790022540|R
+        10|1790066340|S
+        10|1790109000|R
+        10|1790152620|S
+        10|1797803220|R
+        10|1797838260|S
+        11|1773966180|R
+        11|1774009800|S
+        11|1790035620|R
+        11|1790079360|S
+        11|1790122080|R
+        11|1790165640|S
+        11|1797815100|R
+        11|1797852480|S
+        12|1773980280|R
+        12|1774024380|S
+        12|1790049540|R
+        12|1790093940|S
+        12|1790136120|R
+        12|1790180100|S
+        13|1774023840|R
+        13|1774068480|S
+        13|1790093280|R
+        13|1790137740|S
+        13|1790179920|R
+        13|1790223840|S
+        14|1773948420|R
+        14|1773992100|S
+        14|1781986980|R
+        14|1782023280|S
+        14|1790018040|R
+        14|1790061600|S
+        14|1790104380|R
+        14|1790148000|S
+        14|1797790500|R
+        14|1797841680|S
+        15|1773942480|R
+        15|1773986340|S
+        15|1781983260|R
+        15|1782015300|S
+        15|1790012160|R
+        15|1790055720|S
+        15|1790098500|R
+        15|1790142240|S
+        15|1797782340|R
+        15|1797838140|S
+        4|1773224220|R
+        4|1773270480|S
+        5|1789018020|R
+        5|1789064820|S
+        6|1789468620|R
+        6|1789513500|S
+        7|1788928200|R
+        7|1788975360|S
+        8|1773518040|R
+        8|1773562440|S
+        9|1789513620|R
+        9|1789557540|S
+        10|1789071600|R
+        10|1789116900|S
+        11|1789430640|R
+        11|1789475040|S
+        14|1773602640|R
+        14|1773646800|S
+        15|1791306540|R
+        15|1791352800|S
+        """
+        let provider = CitySunEventProvider()
+        let polar = Set(["Tromso", "Longyearbyen", "Reykjavik", "Murmansk", "Rovaniemi", "Utqiagvik"])
+        var count = 0
+        for row in references.split(separator: "\n") {
+            let values = row.split(separator: "|")
+            let place = fixtures[Int(values[0])!]
+            let event = Date(timeIntervalSince1970: Double(values[1])!)
+            let rising = values[2] == "R"
+            // Independent minute rounding and shallow polar angles preclude an
+            // exact-second truth assertion. Normal references agree at ±1 minute;
+            // all sampled high-latitude references agree at ±2 minutes.
+            let offsets = polar.contains(place.name) ? [-600, -120, 120, 600] : [-600, -120, -60, 60, 120, 600]
+            for offset in offsets {
+                await assertDaylight(offset > 0 ? rising : !rising, provider, place,
+                    event.addingTimeInterval(Double(offset)))
+            }
+            count += 1
+        }
+        XCTAssertEqual(count, 234)
     }
 
     func testAllWeatherConditionIconsAndTitlesRemainUnchanged() async {
@@ -250,7 +595,6 @@ nonisolated private final class WeatherFixtureProtocol: URLProtocol, @unchecked 
         let key = AppTimeFormatPreference.storageKey, saved = UserDefaults.standard.object(forKey: AppTimeFormatPreference.storageKey)
         defer { UserDefaults.standard.set(saved, forKey: key) }
         let solar = CitySunEventProvider(), provider = mockWeatherProvider(solar: solar)
-        for place in places { await provider.seedWeatherTestCoordinate(place.coordinate, id: place.name) }
         var fetchedCities: Set<String> = []
         for preference in [AppTimeFormatPreference.twelveHour, .twentyFourHour] {
             UserDefaults.standard.set(preference.rawValue, forKey: key)
@@ -292,7 +636,6 @@ nonisolated private final class WeatherFixtureProtocol: URLProtocol, @unchecked 
         WeatherFixtureProtocol.reset(delayFirst: true)
         let provider = mockWeatherProvider(solar: CitySunEventProvider())
         let london = places[2], bangkok = places[0]
-        for place in [london, bangkok] { await provider.seedWeatherTestCoordinate(place.coordinate, id: place.name) }
         let old = Task { await provider.resolve(for: london.request(london.date(6, 21, 5))) }
         for _ in 0..<100 {
             if !WeatherFixtureProtocol.requests.isEmpty { break }

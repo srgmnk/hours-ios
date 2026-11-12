@@ -88,11 +88,13 @@ extension CityWeatherProvider {
 }
 
 @MainActor final class WeatherCacheTests: XCTestCase {
+    // Fixtures belong to the caller, as in production: providers never resolve names.
+    private var coordinates: [String: LocalCityCoordinates.Coordinate] = [:]
     private func instant(_ text: String) -> Date { ISO8601DateFormatter().date(from: text)! }
     private var selected: Date { instant("2026-06-21T11:00:00Z") }
     private func request(_ id: String = "a", name: String = "London", zone: String = "Europe/London",
                          selected: Date? = nil, requestedAt: Date? = nil) -> WeatherRequest {
-        WeatherRequest(cityID: id, cityName: name, timeZoneID: zone,
+        WeatherRequest(cityID: id, cityName: name, timeZoneID: zone, coordinate: coordinates[id],
                        snapshotDate: selected ?? self.selected, requestedAt: requestedAt ?? selected ?? self.selected,
                        isReferenceOffsetCity: false)
     }
@@ -105,7 +107,7 @@ extension CityWeatherProvider {
     }
     private func seed(_ provider: CityWeatherProvider, id: String = "a", latitude: Double = 51.5074,
                       longitude: Double = -0.1278) async {
-        await provider.seedWeatherTestCoordinate(.init(latitude: latitude, longitude: longitude), id: id)
+        coordinates[id] = .init(latitude: latitude, longitude: longitude)
     }
     private func content(_ result: WeatherResolution, file: StaticString = #filePath, line: UInt = #line) throws -> WeatherCardContent {
         guard case .loaded(let value) = result else {
@@ -123,6 +125,33 @@ extension CityWeatherProvider {
             try await Task.sleep(for: .milliseconds(10))
         }
         XCTFail("Expected \(count) requests, got \(CachedWeatherProtocol.requests.count)")
+    }
+
+    func testSavedCoordinateSnapshotFeedsWeatherAndSolarWithoutNameResolution() async throws {
+        CachedWeatherProtocol.reset()
+        let solar = CitySunEventProvider(), provider = provider(WeatherTestClock(selected), solar: solar)
+        let cities = [City(name: "Springfield", timeZoneID: "America/New_York", canonicalID: "same-id", latitude: 42.1015, longitude: -72.5898),
+                      City(name: "Springfield", timeZoneID: "America/New_York", canonicalID: "same-id", latitude: 43.2984, longitude: -72.4823)]
+        for city in cities {
+            let view = CityDetailsView(city: city, primaryCity: city, date: selected, relativeOffsetMinutes: 0, cityViewPreference: .basic)
+            let point = try XCTUnwrap(view.coordinateSnapshot)
+            let weather = WeatherRequest(cityID: city.id, cityName: city.name, timeZoneID: city.timeZoneID,
+                coordinate: point, snapshotDate: selected, requestedAt: selected, isReferenceOffsetCity: false)
+            _ = try content(await provider.resolve(for: weather))
+            let solarCount = await solar.weatherTestSolarCacheCount()
+            // Instant-based icons do not populate the card's daily solar cache.
+            var calendar = Calendar(identifier: .gregorian); calendar.timeZone = city.timeZone
+            _ = await solar.sunEvents(for: selected, coordinate: .init(latitude: point.latitude, longitude: point.longitude),
+                                      timeZone: city.timeZone, calendar: calendar)
+            let after = await solar.weatherTestSolarCacheCount()
+            XCTAssertEqual(after, solarCount + 1)
+            let query = URLComponents(url: try XCTUnwrap(CachedWeatherProtocol.requests.last?.url), resolvingAgainstBaseURL: false)!.queryItems!
+            XCTAssertEqual(query.first { $0.name == "latitude" }?.value, String(point.latitude))
+            XCTAssertEqual(query.first { $0.name == "longitude" }?.value, String(point.longitude))
+            _ = try content(await provider.resolve(for: weather))
+        }
+        XCTAssertEqual(CachedWeatherProtocol.requests.count, 2)
+        let count = await provider.weatherTestCacheCount(); XCTAssertEqual(count, 2)
     }
 
     func testFirstFetchFreshHitAndRefreshAtExactlyFifteenMinutes() async throws {
@@ -215,6 +244,22 @@ extension CityWeatherProvider {
         let count = await provider.weatherTestFlightCount(); XCTAssertEqual(count, 0)
     }
 
+    func testFreshCacheHitReclassifiesPolarSunsetAtSelectedInstant() async throws {
+        CachedWeatherProtocol.reset()
+        let before = instant("2026-08-25T21:54:00Z")
+        let after = instant("2026-08-25T21:58:00Z")
+        let provider = provider(WeatherTestClock(before))
+        await seed(provider, latitude: 78.22334, longitude: 15.64689)
+        let day = try content(await provider.resolve(for: request(name: "Longyearbyen",
+            zone: "Arctic/Longyearbyen", selected: before)))
+        let night = try content(await provider.resolve(for: request(name: "Renamed city",
+            zone: "Arctic/Longyearbyen", selected: after)))
+        XCTAssertEqual(day.symbolName, "sun.max.fill")
+        XCTAssertEqual(night.symbolName, "moon.stars.fill")
+        XCTAssertEqual(day.value, night.value)
+        XCTAssertEqual(CachedWeatherProtocol.requests.count, 1)
+    }
+
     func testDSTGapTimestampDoesNotRejectOtherUsableHours() async throws {
         let data = Data(#"{"hourly":{"time":["2026-03-29T00:00","2026-03-29T01:00","2026-03-29T02:00"],"temperature_2m":[10,11,12],"apparent_temperature":[9,10,11],"weather_code":[0,0,0]}}"#.utf8)
         CachedWeatherProtocol.reset([.init(data: data)])
@@ -292,15 +337,9 @@ extension CityWeatherProvider {
         defer { CityDetailsView.weatherProvider = savedProvider }
         let key = AppTimeFormatPreference.storageKey, saved = UserDefaults.standard.object(forKey: AppTimeFormatPreference.storageKey)
         defer { UserDefaults.standard.set(saved, forKey: key) }
-        let cities = [City(name: "Cache Alpha", timeZoneID: "Europe/London", canonicalID: "cache-ui-a"),
-                      City(name: "Cache Beta", timeZoneID: "Asia/Bangkok", canonicalID: "cache-ui-b"),
-                      City(name: "Cache Gamma", timeZoneID: "Asia/Tokyo", canonicalID: "cache-ui-c")]
-        let coordinates = [CLLocationCoordinate2D(latitude: 51.5074, longitude: -0.1278),
-                           .init(latitude: 13.7563, longitude: 100.5018), .init(latitude: 35.6762, longitude: 139.6503)]
-        for (city, coordinate) in zip(cities, coordinates) {
-            await CityDetailsView.weatherProvider.seedWeatherTestCoordinate(coordinate, id: city.id)
-            await CityDetailsView.sunEventProvider.seedSolarTestCoordinate(coordinate, id: city.id)
-        }
+        let cities = [City(name: "Cache Alpha", timeZoneID: "Europe/London", canonicalID: "cache-ui-a", latitude: 51.5074, longitude: -0.1278),
+                      City(name: "Cache Beta", timeZoneID: "Asia/Bangkok", canonicalID: "cache-ui-b", latitude: 13.7563, longitude: 100.5018),
+                      City(name: "Cache Gamma", timeZoneID: "Asia/Tokyo", canonicalID: "cache-ui-c", latitude: 35.6762, longitude: 139.6503)]
         let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
         let previous = scene.windows.first(where: \.isKeyWindow)
         let model = WeatherPresentationModel(city: cities[0])

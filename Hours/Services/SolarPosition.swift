@@ -4,7 +4,7 @@ import Foundation
 /// NOAA's Julian-century / Meeus approximation: https://gml.noaa.gov/grad/solcalc/main.js
 /// Date is an absolute UTC instant. Best-supported domain: 1800...2100.
 /// UTC approximates UT1 and TT here; this is a global illumination model, not navigation.
-struct SolarPosition: Equatable {
+nonisolated struct SolarPosition: Equatable {
     let declination: Double
     let subsolarLongitude: Double
     let equationOfTimeMinutes: Double

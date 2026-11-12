@@ -101,22 +101,13 @@ final class CurrentLocationCityProvider: NSObject, ObservableObject {
                     return
                 }
 
-                let timeZoneIdentifier = (mapItem.timeZone ?? TimeZone.current).identifier
-                if let canonical = CitySearchProvider.shared.canonicalItemForCurrentLocation(
+                self.currentCityItem = Self.cityItem(
                     city: normalizedCity,
                     country: country,
-                    timeZoneIdentifier: timeZoneIdentifier
-                ) {
-                    self.currentCityItem = canonical
-                } else {
-                    self.currentCityItem = CitySearchItem(
-                        id: "current-location-\(Self.normalize(normalizedCity))|\(Self.normalize(country))|\(timeZoneIdentifier)",
-                        city: normalizedCity,
-                        country: country,
-                        timeZoneIdentifier: timeZoneIdentifier,
-                        aliases: []
-                    )
-                }
+                    timeZoneIdentifier: (mapItem.timeZone ?? TimeZone.current).identifier,
+                    resolvedCoordinate: mapItem.location.coordinate,
+                    deviceCoordinate: location.coordinate
+                )
             } catch {
                 guard !Task.isCancelled else { return }
                 guard self.reverseGeocodingRequest === request else { return }
@@ -127,6 +118,41 @@ final class CurrentLocationCityProvider: NSObject, ObservableObject {
                 self.currentCityItem = nil
             }
         }
+    }
+
+    private static func cityItem(
+        city: String,
+        country: String,
+        timeZoneIdentifier: String,
+        resolvedCoordinate: CLLocationCoordinate2D,
+        deviceCoordinate: CLLocationCoordinate2D
+    ) -> CitySearchItem {
+        // Catalog matches retain their existing settlement coordinates and identity.
+        if let canonical = CitySearchProvider.shared.canonicalItemForCurrentLocation(
+            city: city, country: country, timeZoneIdentifier: timeZoneIdentifier
+        ) {
+            return canonical
+        }
+
+        // Keep geography from the completed request. The device fix is only a
+        // fallback for this location-derived place, never for manual selections.
+        let coordinate = [resolvedCoordinate, deviceCoordinate].first {
+            $0.latitude.isFinite && $0.longitude.isFinite && CLLocationCoordinate2DIsValid($0)
+        }
+        return CitySearchItem(
+            id: "current-location-\(Self.normalize(city))|\(Self.normalize(country))|\(timeZoneIdentifier)",
+            city: city,
+            country: country,
+            timeZoneIdentifier: timeZoneIdentifier,
+            aliases: [],
+            geographicalEvidence: .init(
+                placeIdentifier: nil, alternatePlaceIdentifiers: nil,
+                originalName: nil, cityName: city, countryCode: nil,
+                coordinates: coordinate.map { .init(latitude: $0.latitude, longitude: $0.longitude) },
+                cityWithContext: nil, cityWithFullContext: nil,
+                fullAddress: nil, shortAddress: nil, pointOfInterestCategory: nil
+            )
+        )
     }
 
     private static func normalizedCityName(from mapItem: MKMapItem) -> String? {
