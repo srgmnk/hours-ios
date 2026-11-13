@@ -43,6 +43,7 @@ struct TimeDialScreen: View {
     @State private var mapHorizontalPosition = WorldMapView.initialHorizontalPosition
     @State private var duoHinge = DuoHingeState()
     @State private var usesCompactSettingsHeader = false
+    @State private var sheetRailOnRight = true
     @State private var duoMapMounted = false
     @State private var mapHasBeenPresented = false
     @AppStorage(OnboardingStorageKey.hasCompleted) private var hasCompletedOnboarding = false
@@ -100,7 +101,8 @@ struct TimeDialScreen: View {
             persistenceSheetDidDismiss(.addCity)
         }) {
             AddCitySheetView(
-                existingCanonicalIDs: Set(cityStore.cities.map(\.id))
+                existingCanonicalIDs: Set(cityStore.cities.map(\.id)),
+                presentingRailOnRight: sheetRailOnRight
             ) { selectedItem in
                 pendingAddedCityItem = selectedItem
             }
@@ -108,7 +110,7 @@ struct TimeDialScreen: View {
         .sheet(isPresented: $isSettingsSheetPresented, onDismiss: {
             persistenceSheetDidDismiss(.settings)
         }) { [usesCompactSettingsHeader] in
-            SettingsSheetView(usesCompactHeader: usesCompactSettingsHeader)
+            SettingsSheetView(usesCompactHeader: usesCompactSettingsHeader, presentingRailOnRight: sheetRailOnRight)
         }
         .sheet(item: $cityBeingRenamed, onDismiss: {
             persistenceSheetDidDismiss(.rename)
@@ -125,11 +127,11 @@ struct TimeDialScreen: View {
                 primaryCity: presentation.primaryCity,
                 date: presentation.date,
                 relativeOffsetMinutes: presentation.relativeOffsetMinutes,
-                cityViewPreference: presentation.cityViewPreference
+                cityViewPreference: presentation.cityViewPreference,
+                presentingRailOnRight: sheetRailOnRight
             )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.hidden)
-                .presentationCornerRadius(38)
         }
         .onChange(of: scenePhase) { _, newPhase in
             if newPhase == .active {
@@ -228,8 +230,10 @@ struct TimeDialScreen: View {
                     }
                     .id(isCitiesEmpty ? "empty" : "list")
 
-                    ProgressiveBottomBlurOverlay(height: 180)
-                        .allowsHitTesting(false)
+                    if cityPresentation == .list {
+                        ProgressiveBottomBlurOverlay(height: 180)
+                            .allowsHitTesting(false)
+                    }
 
                     dialOverlay(
                         in: geo,
@@ -394,7 +398,8 @@ struct TimeDialScreen: View {
                                       y: layout.isPortrait ? layout.map.minY + 49.5 : layout.listViewport.minY + 32.5)
                             .allowsHitTesting(false)
                     }
-                    if !layout.isPortrait {
+                    // Inner wheels always sit on the map, even with a visible list.
+                    if !layout.isInner && listVisible {
                         ProgressiveBottomBlurOverlay(height: layout.blurHeight)
                             .frame(width: layout.blurFrame.width, height: layout.blurHeight)
                             .position(x: layout.blurFrame.midX, y: layout.blurFrame.midY)
@@ -436,6 +441,10 @@ struct TimeDialScreen: View {
                     fireHapticForSnappedStep(step)
                     lastSnappedOffsetSteps = step
                 }
+            }
+            // Read the presenting layout, never the sheet toolbar that we reconfigure.
+            .onChange(of: layout.rail.midX >= layout.content.midX, initial: true) { _, value in
+                sheetRailOnRight = value
             }
             .onChange(of: layout.usesCompactSettingsHeader, initial: true) { _, value in
                 usesCompactSettingsHeader = value
@@ -1493,50 +1502,13 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         guard !citiesLocal.isEmpty else { return nil }
 
         let currentCanonicalID = userCurrentLocationItem.canonicalIdentity
-        let normalizedCurrentCity = normalized(userCurrentLocationItem.city)
-        let currentTimeZoneID = userCurrentLocationItem.timeZoneIdentifier.lowercased()
 
-        if let canonicalMatchIndex = citiesLocal.firstIndex(where: {
+        // The location provider and saved cities share canonical identity.
+        // Names and time zones alone cannot identify the same settlement.
+        return citiesLocal.firstIndex(where: {
             !$0.isZeroOffsetReferenceCity &&
             $0.id == currentCanonicalID
-        }) {
-            return canonicalMatchIndex
-        }
-
-        if let exactMatchIndex = citiesLocal.firstIndex(where: {
-            !$0.isZeroOffsetReferenceCity &&
-            $0.timeZoneID.lowercased() == currentTimeZoneID &&
-            normalized($0.name) == normalizedCurrentCity
-        }) {
-            return exactMatchIndex
-        }
-
-        let timeZoneMatchIndices = citiesLocal.indices.filter { index in
-            let city = citiesLocal[index]
-            return !city.isZeroOffsetReferenceCity &&
-                city.timeZoneID.lowercased() == currentTimeZoneID
-        }
-        if timeZoneMatchIndices.count == 1, let onlyMatch = timeZoneMatchIndices.first {
-            return onlyMatch
-        }
-
-        let cityNameMatchIndices = citiesLocal.indices.filter { index in
-            let city = citiesLocal[index]
-            return !city.isZeroOffsetReferenceCity &&
-                normalized(city.name) == normalizedCurrentCity
-        }
-        if cityNameMatchIndices.count == 1, let onlyMatch = cityNameMatchIndices.first {
-            return onlyMatch
-        }
-
-        return nil
-    }
-
-    private func normalized(_ input: String) -> String {
-        input
-            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: Locale(identifier: "en_US_POSIX"))
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
+        })
     }
 
     @objc

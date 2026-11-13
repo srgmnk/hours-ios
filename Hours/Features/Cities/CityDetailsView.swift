@@ -199,12 +199,20 @@ struct CityDetailsView: View {
     @State private var showReminderTitleSheet = false
     @State private var eventStore = EKEventStore()
     @State private var reminderStore = EKEventStore()
+    @State private var layout = CityDetailsLayoutObserver.Configuration()
+
+    private var usesWideSummary: Bool { layout.usesWideSummary }
+
+    // The native principal slot centers inside the safe toolbar area, which
+    // excludes the right rail. Place the header beside Close in those narrow panes.
+    private var usesLeadingHeader: Bool { layout.expandsContentSafeArea && presentingRailOnRight }
 
     let city: City
     let primaryCity: City
     let date: Date
     let relativeOffsetMinutes: Int
     let cityViewPreference: CityViewPreference
+    var presentingRailOnRight = true
 
     private let horizontalPadding: CGFloat = 8
     private let cardSpacing: CGFloat = 8
@@ -268,7 +276,9 @@ struct CityDetailsView: View {
     private var vibeSummary: VibeSummary {
         let calendar = calendarForCity
         let weekday = calendar.component(.weekday, from: date)
-        return summary(for: dayType(for: weekday), period: currentTimePeriod)
+        let summary = summary(for: dayType(for: weekday), period: currentTimePeriod)
+        guard usesWideSummary else { return summary }
+        return VibeSummary(lines: [summary.lines[0], summary.lines.dropFirst().joined(separator: " ")])
     }
 
     private var coordinateSnapshot: LocalCityCoordinates.Coordinate? {
@@ -318,7 +328,8 @@ struct CityDetailsView: View {
 
         let overlapDuration = overlapDurationText(from: intersectionStart, to: intersectionEnd)
         let selectedTimeRange = "\(overlapTimeText(for: intersectionStart, in: city.timeZone))–\(overlapTimeText(for: intersectionEnd, in: city.timeZone)) \(city.name)"
-        let fullText = "\(firstLine)\nOverlap today \(overlapDuration),\n\(selectedTimeRange)"
+        let rangeSeparator = usesWideSummary ? " " : "\n"
+        let fullText = "\(firstLine)\nOverlap today \(overlapDuration),\(rangeSeparator)\(selectedTimeRange)"
         return OverlapPresentation(
             text: styledOverlapText(
                 fullText,
@@ -348,14 +359,6 @@ struct CityDetailsView: View {
             CustomReferenceOffsetOption.from(timeZoneIdentifier: city.timeZoneID) != nil
     }
 
-    private var relativeOffsetText: String {
-        let sign = relativeOffsetMinutes >= 0 ? "+" : "-"
-        let totalMinutes = abs(relativeOffsetMinutes)
-        let hours = totalMinutes / 60
-        let minutes = totalMinutes % 60
-        return "\(sign)\(hours):" + String(format: "%02d", minutes)
-    }
-
     private var calendarForCity: Calendar {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = city.timeZone
@@ -366,15 +369,20 @@ struct CityDetailsView: View {
         let coordinate = coordinateSnapshot
         NavigationStack {
             GeometryReader { geometry in
-                let bottomPadding = geometry.safeAreaInsets.bottom - 32
+                let spacing = CityDetailsFooterSpacing(
+                    usesTwentyPointGaps: layout.usesTwentyPointFooterSpacing,
+                    safeAreaBottom: geometry.safeAreaInsets.bottom)
 
                 VStack(spacing: 0) {
                     summaryBlock
-                    infoBlock(bottomPadding: bottomPadding)
+                        .padding(.bottom, spacing.summaryBottom)
+                    infoBlock(bottomPadding: spacing.bottom, topSpacing: spacing.top)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .background(SheetStyle.appScreenBackground(for: theme))
             }
+            .modifier(CityDetailsContentSafeArea(
+                enabled: layout.expandsContentSafeArea, railOnRight: layout.isInnerSplitView ? presentingRailOnRight : true))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -385,8 +393,8 @@ struct CityDetailsView: View {
                     createActionMenu
                 }
 
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 0) {
+                ToolbarItem(placement: usesLeadingHeader ? .topBarLeading : .principal) {
+                    VStack(alignment: usesLeadingHeader ? .leading : .center, spacing: 0) {
                         Text(headerTimeTitle)
                             .font(.system(size: 17, weight: .semibold))
                             .foregroundStyle(theme.textPrimary)
@@ -396,8 +404,16 @@ struct CityDetailsView: View {
                             .tracking(-0.42)
                             .foregroundStyle(theme.textPrimary.opacity(0.3))
                     }
+                    .fixedSize(horizontal: usesLeadingHeader, vertical: false)
                 }
+                .sharedBackgroundVisibility(usesLeadingHeader ? .hidden : .automatic)
             }
+            .modifier(CityDetailsToolbarPlacement(keepsTopCorners: layout.isInnerSplitView && !presentingRailOnRight))
+        }
+        .background {
+            CityDetailsLayoutObserver { layout = $0 }
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
         .sheet(isPresented: $showEventSheet) {
             EventEditView(
@@ -508,9 +524,10 @@ struct CityDetailsView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .offset(y: layout.summaryVerticalOffset)
     }
 
-    private func infoBlock(bottomPadding: CGFloat) -> some View {
+    private func infoBlock(bottomPadding: CGFloat, topSpacing: CGFloat = 32) -> some View {
         VStack(spacing: 0) {
             HStack(spacing: cardSpacing) {
                 weatherCard
@@ -519,7 +536,7 @@ struct CityDetailsView: View {
             .padding(.horizontal, horizontalPadding)
 
             bottomLine
-                .padding(.top, 32)
+                .padding(.top, topSpacing)
                 .padding(.horizontal, 32)
                 .padding(.bottom, bottomPadding)
         }
@@ -527,7 +544,6 @@ struct CityDetailsView: View {
 
     private var bottomLine: some View {
         CityDetailsFooter(
-            relativeOffsetText: relativeOffsetMinutes == 0 ? nil : relativeOffsetText,
             timeZoneDisplayText: timeZoneDisplayText,
             shouldShowDSTTag: shouldShowDSTTag,
             cityViewPreference: cityViewPreference
@@ -1863,7 +1879,6 @@ private struct CityDetailsFooter: View {
     @Environment(\.appTheme) private var theme
     @ScaledMetric(relativeTo: .subheadline) private var footerFontSize = 14.0
 
-    let relativeOffsetText: String?
     let timeZoneDisplayText: String
     let shouldShowDSTTag: Bool
     let cityViewPreference: CityViewPreference
@@ -1897,24 +1912,148 @@ private struct CityDetailsFooter: View {
 
     private var footerTimeZone: some View {
         HStack(spacing: 4) {
-            if let relativeOffsetText {
-                Text("\(relativeOffsetText) from now,")
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            Image(systemName: "globe.europe.africa.fill")
+                .accessibilityHidden(true)
 
-            HStack(spacing: 4) {
-                Image(systemName: "globe.europe.africa.fill")
-                    .accessibilityHidden(true)
+            Text(timeZoneDisplayText)
+                .fixedSize(horizontal: false, vertical: true)
 
-                Text(timeZoneDisplayText)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if shouldShowDSTTag {
-                    DSTBadgeView(cityViewPreference: cityViewPreference)
-                }
+            if shouldShowDSTTag {
+                DSTBadgeView(cityViewPreference: cityViewPreference)
             }
         }
         .accessibilityIdentifier("cityDetails.timeZone")
     }
 
+}
+
+/// A sheet's own bounds can be portrait even on the open landscape display.
+/// Read its window instead, requiring a live fully-open hinge and the whole
+/// display so Split View never receives the wider text composition.
+private struct CityDetailsLayoutObserver: UIViewRepresentable {
+    struct Configuration: Equatable {
+        var usesWideSummary = false
+        var usesTwentyPointFooterSpacing = false
+        var expandsContentSafeArea = false
+        var isInnerSplitView = false
+        var summaryVerticalOffset: CGFloat = 0
+    }
+
+    var changed: (Configuration) -> Void
+
+    static func configuration(hinge: DuoHingeState.Status, window: CGSize, screen: CGSize) -> Configuration {
+        let isInnerSplitView = (hinge == .fullyOpen || hinge == .partiallyOpen) &&
+            window.width < screen.width - 1 && abs(window.height - screen.height) < 1
+        return Configuration(
+            usesWideSummary: usesWideSummary(hinge: hinge, window: window, screen: screen),
+            usesTwentyPointFooterSpacing: hinge == .closed ||
+                (hinge != .unavailable && screen.width > screen.height),
+            expandsContentSafeArea: hinge == .closed || isInnerSplitView,
+            isInnerSplitView: isInnerSplitView,
+            summaryVerticalOffset: hinge == .closed ||
+                (hinge != .unavailable && screen.width > screen.height) ? 20 : 0)
+    }
+
+    static func usesWideSummary(hinge: DuoHingeState.Status, window: CGSize, screen: CGSize) -> Bool {
+        hinge == .fullyOpen && window.width > window.height &&
+            abs(window.width - screen.width) < 1 && abs(window.height - screen.height) < 1
+    }
+
+    func makeUIView(context: Context) -> ObserverView {
+        let view = ObserverView()
+        view.changed = changed
+        if #available(iOS 27.1, *) {
+            view.addInteraction(UIHingeInteraction { [weak view] _, context in
+                switch context.hinge?.status {
+                case .fullyOpen: view?.hinge = .fullyOpen
+                case .partiallyOpen: view?.hinge = .partiallyOpen
+                case .closed: view?.hinge = .closed
+                default: view?.hinge = .unavailable
+                }
+                view?.scheduleUpdate()
+            })
+        }
+        return view
+    }
+
+    func updateUIView(_ view: ObserverView, context: Context) {
+        view.changed = changed
+        view.scheduleUpdate()
+    }
+
+    final class ObserverView: UIView {
+        var changed: ((Configuration) -> Void)?
+        var hinge: DuoHingeState.Status = .unavailable
+        private var lastValue: Configuration?
+        private var updatePending = false
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            scheduleUpdate()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            scheduleUpdate()
+        }
+
+        func scheduleUpdate() {
+            guard !updatePending else { return }
+            updatePending = true
+            // Deliver after SwiftUI's current layout/update, using the latest
+            // geometry and hinge state if several changes arrived together.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                updatePending = false
+                guard let window, let scene = window.windowScene else { return }
+                let value = CityDetailsLayoutObserver.configuration(
+                    hinge: hinge, window: window.bounds.size, screen: scene.screen.bounds.size)
+                guard value != lastValue else { return }
+                lastValue = value
+                changed?(value)
+            }
+        }
+    }
+}
+
+/// Keep left Split View actions in the top bar. The status-bearing right
+/// pane needs automatic placement to avoid reserving an extra top gutter.
+private struct CityDetailsToolbarPlacement: ViewModifier {
+    let keepsTopCorners: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            content.toolbarVerticalBehavior(keepsTopCorners ? .disabled : .automatic)
+        } else {
+            content
+        }
+    }
+}
+
+/// Use the presenting window's rail side. Reading toolbarVerticalEdge here
+/// would feed the result of our toolbar override back into its own placement.
+private struct CityDetailsContentSafeArea: ViewModifier {
+    @Environment(\.layoutDirection) private var layoutDirection
+    let enabled: Bool
+    var railOnRight = true
+
+    func body(content: Content) -> some View {
+        let trailing = railOnRight == (layoutDirection == .leftToRight)
+        content.ignoresSafeArea(.container, edges: enabled ? (trailing ? .trailing : .leading) : [])
+    }
+}
+
+/// GeometryReader ends at the safe-area boundary; the visible sheet continues
+/// below it. Keep the summary's original allocation while changing only the
+/// space occupied by the cards and footer.
+private struct CityDetailsFooterSpacing {
+    let top: CGFloat
+    let bottom: CGFloat
+    let summaryBottom: CGFloat
+
+    init(usesTwentyPointGaps: Bool, safeAreaBottom: CGFloat) {
+        top = usesTwentyPointGaps ? 20 : 32
+        bottom = usesTwentyPointGaps ? 20 - safeAreaBottom : safeAreaBottom - 32
+        summaryBottom = usesTwentyPointGaps ? 2 * safeAreaBottom - 40 : 0
+    }
 }

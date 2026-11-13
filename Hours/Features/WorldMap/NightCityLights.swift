@@ -21,14 +21,26 @@ struct NightCityLights {
         let id: String
         let coordinate: LocalCityCoordinates.Coordinate
         let position: SIMD2<Float>
+        let glowIntensity: Float
 
         init(id: String, coordinate: LocalCityCoordinates.Coordinate) {
             self.id = id
             self.coordinate = coordinate
+            glowIntensity = NightCityLights.glowIntensity(for: id)
             let latitude = min(85.05112878, max(-85.05112878, coordinate.latitude)) * .pi / 180
             position = SIMD2(Float(SolarPosition.wrap((coordinate.longitude + 180) / 360, period: 1)),
                              Float(min(1, max(0, (1 - asinh(tan(latitude)) / .pi) / 2))))
         }
+    }
+
+    /// FNV-1a over UTF-8 is fixed across processes/platforms and independent of
+    /// list order. Compute once with the light, never during camera/time updates.
+    static func glowIntensity(for id: String) -> Float {
+        var hash: UInt64 = 14_695_981_039_346_656_037
+        for byte in id.utf8 {
+            hash = (hash ^ UInt64(byte)) &* 1_099_511_628_211
+        }
+        return [Float(0.30), 0.50, 0.70, 0.85, 1.00][Int(hash % 5)]
     }
 
     private let catalog: [Light]

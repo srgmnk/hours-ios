@@ -13,7 +13,7 @@ import MetalKit
         pass.colorAttachments[0].loadAction = .clear
         pass.colorAttachments[0].storeAction = .store
         let lights = NightCityLights().lights(savedCities: [])
-        let data = lights.map { LightGPU(positionAndVisibility: SIMD4($0.position.x, $0.position.y, 1, 0)) }
+        let data = lights.map { LightGPU(positionAndVisibility: SIMD4($0.position.x, $0.position.y, 1, $0.glowIntensity)) }
         let buffer = try XCTUnwrap(data.withUnsafeBytes { bytes in
             renderer.device.makeBuffer(bytes: bytes.baseAddress!, length: bytes.count, options: .storageModeShared)
         })

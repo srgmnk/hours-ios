@@ -3,12 +3,14 @@ import UIKit
 
 struct AddCitySheetView: View {
     let existingCanonicalIDs: Set<String>
+    var presentingRailOnRight = true
     let onSelect: (CitySearchItem) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.displayScale) private var displayScale
     @Environment(\.appTheme) private var theme
     @State private var query = ""
+    @State private var hinge: DuoHingeState.Status = .unavailable
     @State private var results: [DisplayResult] = []
     @State private var searchPhase: SearchPhase = .idle
     @State private var searchTask: Task<Void, Never>?
@@ -195,7 +197,9 @@ struct AddCitySheetView: View {
             .safeAreaInset(edge: .bottom) {
                 bottomSearchArea
             }
+            .modifier(AddCityLeadingSplitLayout(enabled: hinge == .fullyOpen && !presentingRailOnRight))
         }
+        .background { DuoHingeObserver { hinge = $0 } }
         .background(SheetStyle.appScreenBackground(for: theme).ignoresSafeArea())
         .onAppear {
             performSearch(for: query)
@@ -568,6 +572,23 @@ struct AddCitySheetView: View {
         .contentShape(Rectangle())
     }
 
+}
+
+/// Use the presenting layout, not this toolbar's resulting edge, to avoid
+/// feeding the toolbar override back into its own placement.
+private struct AddCityLeadingSplitLayout: ViewModifier {
+    @Environment(\.layoutDirection) private var direction
+    let enabled: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            content
+                .ignoresSafeArea(.container, edges: enabled ? (direction == .leftToRight ? .leading : .trailing) : [])
+                .toolbarVerticalBehavior(enabled ? .disabled : .automatic)
+        } else {
+            content
+        }
+    }
 }
 
 private struct CustomReferenceOffsetSelectorSheet: View {

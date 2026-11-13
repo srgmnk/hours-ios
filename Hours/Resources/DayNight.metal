@@ -26,6 +26,7 @@ struct LightVertex {
     float4 position [[position]];
     float2 local;
     float4 color;
+    float glowIntensity [[flat]];
 };
 vertex LightVertex cityLightVertex(uint vertexID [[vertex_id]], uint instance [[instance_id]],
                                   constant Uniforms &u [[buffer(0)]],
@@ -41,10 +42,21 @@ vertex LightVertex cityLightVertex(uint vertexID [[vertex_id]], uint instance [[
     float2 local = corners[vertexID] * (a.viewport.z * 0.5f);
     float2 uv = (point + local) / a.viewport.xy;
     float alpha = light.positionAndVisibility.z * a.color.a;
-    return {float4(uv * float2(2,-2) + float2(-1,1), 0, 1), corners[vertexID] * 0.5f + 0.5f, float4(a.color.rgb, alpha)};
+    return {float4(uv * float2(2,-2) + float2(-1,1), 0, 1), corners[vertexID] * 0.5f + 0.5f,
+            float4(a.color.rgb, alpha), light.positionAndVisibility.w};
 }
-fragment float4 cityLightFragment(LightVertex in [[stage_in]], texture2d<float> sprite [[texture(0)]]) {
+fragment float4 cityLightFragment(LightVertex in [[stage_in]], texture2d<float> sprite [[texture(0)]],
+                                 constant LightUniforms &a [[buffer(1)]]) {
     constexpr sampler linearSampler(coord::normalized, address::clamp_to_edge, filter::linear);
+    float4 sample = sprite.sample(linearSampler, in.local);
+    // Leave the approved core and its filtered edge untouched. Ease into the
+    // halo-only multiplier outside that footprint, without changing the sprite.
+    // Full intensity takes the exact original path.
+    if (in.glowIntensity < 1.0f) {
+        float radius = length(in.local - 0.5f) * a.viewport.z;
+        float halo = smoothstep(a.viewport.w, a.viewport.w + 0.5f, radius);
+        sample *= mix(1.0f, in.glowIntensity, halo);
+    }
     // Premultiplied source-over; selectedInstant controls the entire light's fade.
-    return sprite.sample(linearSampler, in.local) * in.color.a;
+    return sample * in.color.a;
 }

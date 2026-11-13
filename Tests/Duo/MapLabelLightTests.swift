@@ -121,6 +121,7 @@ import MetalKit
                 overlay.layoutIfNeeded()
                 // Isolate sprite compositing from solar shadow, using the real surface.
                 overlay.uniforms.style.x = 0; overlay.lightData[0].positionAndVisibility.z = 1
+                overlay.lightData[0].positionAndVisibility.w = 1 // approved full-intensity reference
                 overlay.lightRevision += 1; overlay.updateVisibleLights(); overlay.needsRender = true; overlay.setNeedsDisplay()
                 try await Task.sleep(for: .milliseconds(150)); attach(panel, "lights-equivalent-\(name)-\(dark ? "dark" : "light")")
                 print("LIGHT_SURFACE shadow=\(overlay.uniforms.style.x) scale=\(overlay.contentScaleFactor) drawable=\(overlay.drawableSize) colorspace=\(String(describing: (overlay.layer as? CAMetalLayer)?.colorspace))")

@@ -119,11 +119,13 @@ final class NightRenderer {
 }
 
 struct LightGPU {
-    var positionAndVisibility: SIMD4<Float> // projected xy, solar visibility, padding
+    var positionAndVisibility: SIMD4<Float> // projected xy, solar visibility, glow intensity
 }
 
 struct LightUniforms {
-    var viewport = SIMD4<Float>(0, 0, NightCityLights.Style.spriteDiameter, 0) // point size xy, sprite diameter, padding
+    // Protect the exported 2pt core, including its antialiasing/filter footprint.
+    var viewport = SIMD4<Float>(0, 0, NightCityLights.Style.spriteDiameter,
+                               NightCityLights.Style.diameter / 2 + 0.5)
     var color = SIMD4<Float>(NightCityLights.Style.color, NightCityLights.Style.brightness)
 }
 
@@ -253,7 +255,7 @@ final class DayNightOverlay: MTKView, MTKViewDelegate {
         guard self.lights != lights, !isSuspended else { return }
         self.lights = lights
         lightData = lights.map { light in
-            LightGPU(positionAndVisibility: SIMD4(light.position.x, light.position.y, 0, 0))
+            LightGPU(positionAndVisibility: SIMD4(light.position.x, light.position.y, 0, light.glowIntensity))
         }
         updateVisibility()
         updateVisibleLights()

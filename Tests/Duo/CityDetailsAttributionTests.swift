@@ -57,7 +57,7 @@ import Vision
         XCTAssertTrue(strings.joined(separator: " ").contains("UTC+7"), strings.description)
     }
 
-    func testTimeOffsetAndDSTRemainPresent() throws {
+    func testRelativeDeltaIsAbsentAndDSTRemainsPresent() throws {
         let renderer = ImageRenderer(content: details(offset: 345, zone: "Europe/London").bottomLine
             .environment(\.appTheme, .light).frame(width: 605).padding(8).background(.white))
         renderer.scale = 3
@@ -65,7 +65,8 @@ import Vision
         let request = VNRecognizeTextRequest(); request.recognitionLevel = .accurate
         try VNImageRequestHandler(cgImage: image).perform([request])
         let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
-        XCTAssertTrue(text.contains("from now"), text)
+        XCTAssertFalse(text.contains("from now"), text)
+        XCTAssertFalse(text.contains("5:45"), text)
         XCTAssertTrue(text.contains("UTC+1"), text)
         XCTAssertTrue(text.contains("DST"), text)
     }

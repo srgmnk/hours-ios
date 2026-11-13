@@ -18,6 +18,9 @@ private enum SettingsLinkAction {
 
 struct SettingsSheetView: View {
     var usesCompactHeader = false
+    var presentingRailOnRight = true
+    @State private var hinge: DuoHingeState.Status = .unavailable
+    @State private var contentLayout = SettingsContentWidthObserver.Configuration()
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(\.appTheme) private var theme
@@ -132,50 +135,9 @@ struct SettingsSheetView: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                SheetStyle.appScreenBackground(for: theme)
-                    .ignoresSafeArea()
-
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: 0) {
-
-                        if usesCompactHeader {
-                            compactHeader
-                        } else {
-                            VStack(spacing: -8) {
-                                Text("Catch")
-                                Text("the moment")
-                                Text("in hours")
-                            }
-                            .font(.system(size: 32, weight: .medium))
-                            .foregroundStyle(Color(red: 78.0 / 255.0, green: 80.0 / 255.0, blue: 89.0 / 255.0))
-                            .tracking(-0.96)
-                            .multilineTextAlignment(.center)
-                            .padding(.top, -16)
-
-                            heroSection
-                                .padding(.top, -32)
-                        }
-
-                        settingsBlock
-                            .padding(.top, usesCompactHeader ? 0 : 12)
-                            .padding(.horizontal, 8)
-
-                        linksBlock
-                            .padding(.top, 8)
-                            .padding(.horizontal, 8)
-
-                        footer
-                            .padding(.top, 56)
-                            .padding(.bottom, 32)
-                            .padding(.horizontal, 40)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .padding(.top, usesCompactHeader ? 0 : 32)
-                    .frame(maxWidth: .infinity, alignment: .top)
-                }
-                .scrollEdgeEffectStyle(.soft, for: .top)
-            }
+            mainContent(expandedEdges: [])
+                .modifier(SettingsContentSafeArea(enabled: contentLayout.expandsContent,
+                                                  railOnRight: contentLayout.isSplitView ? presentingRailOnRight : true))
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -183,6 +145,11 @@ struct SettingsSheetView: View {
                     closeButton
                 }
             }
+            .modifier(SettingsToolbarPlacement(keepsTopHeader: contentLayout.isSplitView && !presentingRailOnRight))
+        }
+        .background {
+            DuoHingeObserver { hinge = $0 }
+            SettingsContentWidthObserver(hinge: hinge) { contentLayout = $0 }
         }
         // The root theme already resolves System. Passing its scheme explicitly
         // also clears a previous manual override on an already-presented sheet.
@@ -202,7 +169,56 @@ struct SettingsSheetView: View {
             LegalDocumentSheet(document: document)
         }
     }
-    
+
+
+    private func mainContent(expandedEdges: Edge.Set) -> some View {
+        ZStack {
+            SheetStyle.appScreenBackground(for: theme)
+                .ignoresSafeArea()
+
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 0) {
+
+                    if usesCompactHeader {
+                        compactHeader
+                    } else {
+                        VStack(spacing: -8) {
+                            Text("Catch")
+                            Text("the moment")
+                            Text("in hours")
+                        }
+                        .font(.system(size: 32, weight: .medium))
+                        .foregroundStyle(Color(red: 78.0 / 255.0, green: 80.0 / 255.0, blue: 89.0 / 255.0))
+                        .tracking(-0.96)
+                        .multilineTextAlignment(.center)
+                        .padding(.top, -16)
+
+                        heroSection
+                            .padding(.top, -32)
+                    }
+
+                    settingsBlock
+                        .padding(.top, usesCompactHeader ? 0 : 12)
+                        .padding(.horizontal, 8)
+
+                    linksBlock
+                        .padding(.top, 8)
+                        .padding(.horizontal, 8)
+
+                    footer
+                        .padding(.top, 56)
+                        .padding(.bottom, 32)
+                        .padding(.horizontal, 40)
+                        .frame(maxWidth: .infinity)
+                }
+                .padding(.top, usesCompactHeader ? 0 : 32)
+                .frame(maxWidth: .infinity, alignment: .top)
+            }
+            .scrollEdgeEffectStyle(.soft, for: .top)
+            // Recover only the inset inside the assigned narrow Duo viewport.
+            .ignoresSafeArea(.container, edges: expandedEdges)
+        }
+    }
 
     // Figma 718:10469: the title overlays the original artwork's transparent
     // upper area. Let the artwork establish the header height without clipping.
@@ -396,7 +412,7 @@ struct SettingsSheetView: View {
             Image(systemName: "heart.gauge.open")
                 .font(.system(size: 18, weight: .regular))
                 .foregroundStyle(theme.textSubdued)
-            
+
             Text("Made by D.R.R.S.\nBacause I want it for a long time")
                 .font(.system(size: 14, weight: .regular))
                 .tracking(-0.42)
@@ -628,5 +644,84 @@ private struct MailComposeView: UIViewControllerRepresentable {
         ) {
             controller.dismiss(animated: true)
         }
+    }
+}
+
+/// Uses the existing hinge observer and the same window/screen classification
+/// as City Details. Recover the actual inset of either Split View pane.
+private struct SettingsContentWidthObserver: UIViewRepresentable {
+    let hinge: DuoHingeState.Status
+    struct Configuration: Equatable {
+        var expandsContent = false
+        var isSplitView = false
+    }
+
+    let changed: (Configuration) -> Void
+
+    static func configuration(hinge: DuoHingeState.Status, window: CGSize, screen: CGSize) -> Configuration {
+        let isSplit = (hinge == .fullyOpen || hinge == .partiallyOpen) && screen.width > screen.height &&
+            window.width < screen.width - 1 && abs(window.height - screen.height) < 1
+        return Configuration(expandsContent: hinge == .closed || isSplit, isSplitView: isSplit)
+    }
+
+    func makeUIView(context: Context) -> ObserverView { ObserverView() }
+
+    func updateUIView(_ view: ObserverView, context: Context) {
+        view.hinge = hinge
+        view.changed = changed
+        view.scheduleUpdate()
+    }
+
+    final class ObserverView: UIView {
+        var hinge: DuoHingeState.Status = .unavailable
+        var changed: ((Configuration) -> Void)?
+        private var lastValue: Configuration?
+        private var pending = false
+
+        override func didMoveToWindow() { super.didMoveToWindow(); scheduleUpdate() }
+        override func layoutSubviews() { super.layoutSubviews(); scheduleUpdate() }
+        override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); scheduleUpdate() }
+
+        func scheduleUpdate() {
+            guard !pending else { return }
+            pending = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                pending = false
+                guard let window, let scene = window.windowScene else { return }
+                let value = SettingsContentWidthObserver.configuration(
+                    hinge: hinge, window: window.bounds.size, screen: scene.screen.bounds.size)
+                guard value != lastValue else { return }
+                lastValue = value
+                changed?(value)
+            }
+        }
+    }
+}
+
+/// Only left Split View needs the half-open top-header override. On the
+/// status-bearing right pane, native automatic placement avoids a top gutter.
+private struct SettingsToolbarPlacement: ViewModifier {
+    let keepsTopHeader: Bool
+
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            content.toolbarVerticalBehavior(keepsTopHeader ? .disabled : .automatic)
+        } else {
+            content
+        }
+    }
+}
+
+/// Use the presenting window's rail side. Reading toolbarVerticalEdge here
+/// would feed the result of our toolbar override back into its own placement.
+private struct SettingsContentSafeArea: ViewModifier {
+    @Environment(\.layoutDirection) private var layoutDirection
+    let enabled: Bool
+    var railOnRight = true
+
+    func body(content: Content) -> some View {
+        let trailing = railOnRight == (layoutDirection == .leftToRight)
+        content.ignoresSafeArea(.container, edges: enabled ? (trailing ? .trailing : .leading) : [])
     }
 }
