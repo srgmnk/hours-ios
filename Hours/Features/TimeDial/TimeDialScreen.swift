@@ -36,6 +36,7 @@ struct TimeDialScreen: View {
     @State private var cityBeingRenamed: City?
     @State private var cityDetailsPresentation: CityDetailsPresentation?
     @State private var pendingAddedCityItem: CitySearchItem?
+    @State private var addedCityReveal: AddedCityRevealRequest?
     @State private var isPersistenceAlertPresented = false
     @State private var hasAcknowledgedPersistenceFailure = false
     @State private var sheetsAwaitingDismissal: Set<PresentedSheet> = []
@@ -137,6 +138,8 @@ struct TimeDialScreen: View {
             if newPhase == .active {
                 currentLocationProvider.requestCurrentCity()
                 updatePersistenceAlert()
+            } else {
+                addedCityReveal?.cancel()
             }
         }
         .onChange(of: persistenceAlertStatus, initial: true) { _, _ in
@@ -144,6 +147,15 @@ struct TimeDialScreen: View {
         }
         .onChange(of: hasCompletedOnboarding) { _, _ in
             updatePersistenceAlert()
+        }
+        .onChange(of: cityViewPreferenceRawValue) { _, _ in
+            addedCityReveal?.cancel()
+        }
+        .onChange(of: cityPresentation) { _, _ in
+            addedCityReveal?.cancel()
+        }
+        .onDisappear {
+            addedCityReveal?.cancel()
         }
         .alert("Unable to Save Changes", isPresented: $isPersistenceAlertPresented) {
             Button("OK", role: .cancel) {}
@@ -205,7 +217,8 @@ struct TimeDialScreen: View {
                                     // Desired visual stop gap from physical screen bottom.
                                     bottomContentInset: cityListDesiredBottomGap,
                                     onRenameRequested: presentRenameSheet(for:),
-                                    onCitySelected: presentCityDetails(for:)
+                                    onCitySelected: presentCityDetails(for:),
+                                    addedCityReveal: addedCityReveal
                                 )
                             }
                             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
@@ -367,7 +380,9 @@ struct TimeDialScreen: View {
                             onCitySelected: presentCityDetails(for:),
                             duoViewport: layout.listViewport.size,
                             duoShowsLogo: !layout.isPortrait,
-                            duoHorizontalInset: layout.listHorizontalInset
+                            duoHorizontalInset: layout.listHorizontalInset,
+                            addedCityReveal: addedCityReveal,
+                            isListVisible: listVisible
                         )
                     }
                     .frame(width: layout.listViewport.width, height: layout.listViewport.height)
@@ -616,6 +631,9 @@ struct TimeDialScreen: View {
         Button(action: {
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
+            pendingAddedCityItem = nil
+            addedCityReveal?.cancel()
+            addedCityReveal = nil
             sheetsAwaitingDismissal.insert(.addCity)
             isAddCitySheetPresented = true
         }) {
@@ -763,12 +781,17 @@ struct TimeDialScreen: View {
     }
 
     private func appendCityIfNeeded(_ selectedItem: CitySearchItem) {
+        addedCityReveal?.cancel()
+        addedCityReveal = nil
         let alreadyExists = cityStore.cities.contains(where: { $0.id == selectedItem.canonicalIdentity })
         guard !alreadyExists else {
             return
         }
 
         cityStore.cities.append(selectedItem.asCity)
+        // Only the successful Add City dismissal path creates a reveal request.
+        addedCityReveal = AddedCityRevealRequest(cityID: selectedItem.canonicalIdentity,
+                                               mode: selectedCityViewPreference)
     }
 
     private func presentRenameSheet(for city: City) {
@@ -901,6 +924,20 @@ private struct CityListStoreObservation<Content: View>: View {
     }
 }
 
+// Shared across representable/controller replacements during a Duo transition.
+// Consuming it does not publish SwiftUI state from a UIKit layout callback.
+private final class AddedCityRevealRequest {
+    private(set) var cityID: City.ID?
+    let mode: CityViewPreference
+
+    init(cityID: City.ID, mode: CityViewPreference) {
+        self.cityID = cityID
+        self.mode = mode
+    }
+
+    func cancel() { cityID = nil }
+}
+
 private struct CityListReorderUIKitView: UIViewControllerRepresentable {
     // Observe appearance below the deferred geometry boundary.
     @Environment(\.appTheme) private var theme
@@ -921,6 +958,8 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
     var duoViewport: CGSize? = nil
     var duoShowsLogo = true
     var duoHorizontalInset: CGFloat = 8
+    var addedCityReveal: AddedCityRevealRequest? = nil
+    var isListVisible = true
 
     final class Coordinator {
         var parent: CityListReorderUIKitView
@@ -963,6 +1002,7 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
             cardBackgroundColor: SheetStyle.appCardBackground(for: theme)
         )
         controller.updatePortraitBlur(theme: theme, colorScheme: colorScheme)
+        controller.receiveAddedCityReveal(addedCityReveal, isListVisible: isListVisible)
         return controller
     }
 
@@ -990,6 +1030,7 @@ private struct CityListReorderUIKitView: UIViewControllerRepresentable {
             cardBackgroundColor: SheetStyle.appCardBackground(for: theme)
         )
         uiViewController.updatePortraitBlur(theme: theme, colorScheme: colorScheme)
+        uiViewController.receiveAddedCityReveal(addedCityReveal, isListVisible: isListVisible)
     }
 }
 
@@ -1184,6 +1225,53 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     }
     private var duoScrollAnchor: ScrollAnchor?
     private var lastDuoScrollAnchor: ScrollAnchor?
+    private var addedCityReveal: AddedCityRevealRequest?
+    private var isRevealingAddedCity = false
+
+    func receiveAddedCityReveal(_ request: AddedCityRevealRequest?, isListVisible: Bool = true) {
+        if addedCityReveal !== request { addedCityReveal?.cancel() }
+        addedCityReveal = request
+        guard let request, request.cityID != nil else { return }
+        guard isListVisible, request.mode == cityViewPreference else {
+            request.cancel()
+            return
+        }
+        // apply() has supplied the new data; UIKit must now lay out that data.
+        view.setNeedsLayout()
+    }
+
+    private func revealAddedCityIfReady() {
+        guard let request = addedCityReveal, let id = request.cityID else { return }
+        guard request.mode == cityViewPreference, !isReordering,
+              !collectionView.isDragging, !collectionView.isDecelerating,
+              let index = citiesLocal.firstIndex(where: { $0.id == id }) else {
+            request.cancel()
+            return
+        }
+        guard isRenderReadyForNonEmptyReload, !needsPostAttachReload else { return }
+        // SwiftUI may deliver the new Duo pane before UIKit resizes the controller.
+        if let duoViewport {
+            let tolerance = 1 / max(traitCollection.displayScale, 1)
+            guard abs(collectionView.bounds.width - duoViewport.width) <= tolerance,
+                  abs(collectionView.bounds.height - duoViewport.height) <= tolerance else { return }
+        }
+        collectionView.layoutIfNeeded()
+        let path = IndexPath(item: index, section: 0)
+        guard collectionView.numberOfItems(inSection: 0) == citiesLocal.count,
+              let frame = collectionView.layoutAttributesForItem(at: path)?.frame else { return }
+
+        // Insets already reserve the wheel/overlays and the resolved Duo boundary.
+        let visible = collectionView.bounds.inset(by: collectionView.adjustedContentInset)
+        request.cancel()
+        addedCityReveal = nil
+        guard collectionView.cellForItem(at: path) == nil || !visible.contains(frame) else { return }
+        isRevealingAddedCity = true
+        // Cards in the same row share their vertical frame, including an odd last row.
+        // UIKit resolves self-sizing list cells and supplies its native scroll animation.
+        collectionView.scrollToItem(at: path, at: .bottom, animated: !UIAccessibility.isReduceMotionEnabled)
+        lastDuoScrollAnchor = captureDuoScrollAnchor()
+        if UIAccessibility.isReduceMotionEnabled { isRevealingAddedCity = false }
+    }
 
     private func captureDuoScrollAnchor() -> ScrollAnchor? {
         let y = collectionView.contentOffset.y
@@ -1204,7 +1292,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         // UIKit may adjust its offset before SwiftUI supplies the new pane size.
         // Preserve the last user anchor, not that transient automatic adjustment.
         guard duoViewport != nil, duoScrollAnchor == nil,
-              scrollView.isDragging || scrollView.isDecelerating || isReordering else { return }
+              scrollView.isDragging || scrollView.isDecelerating || isReordering || isRevealingAddedCity else { return }
         lastDuoScrollAnchor = captureDuoScrollAnchor()
     }
 
@@ -1304,6 +1392,10 @@ private final class CityListReorderViewController: UIViewController, UICollectio
             lastDuoScrollAnchor = captureDuoScrollAnchor()
         }
         updatePortraitBlurOpacity()
+        if addedCityReveal?.cityID != nil {
+            runPostAttachReloadIfNeeded()
+            revealAddedCityIfReady()
+        }
     }
 
     override func viewDidAppear(_ animated: Bool) {
@@ -1313,6 +1405,7 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         }
         runPostAttachReloadIfNeeded()
         updatePortraitBlurOpacity()
+        view.setNeedsLayout()
     }
 
     override func viewWillDisappear(_ animated: Bool) {
@@ -1350,6 +1443,11 @@ private final class CityListReorderViewController: UIViewController, UICollectio
         let didCityViewPreferenceChange = self.cityViewPreference != cityViewPreference
         self.cityViewPreference = cityViewPreference
         if didCityViewPreferenceChange {
+            addedCityReveal?.cancel()
+            if isRevealingAddedCity {
+                isRevealingAddedCity = false
+                collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+            }
             resetCardActionPresentation()
             openActionsCityID = nil
             cardActionPan.isEnabled = cityViewPreference == .cards
@@ -1587,6 +1685,10 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     }
 
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        if isRevealingAddedCity {
+            isRevealingAddedCity = false
+            lastDuoScrollAnchor = captureDuoScrollAnchor()
+        }
         guard isDragAutoScrolling else { return }
         isDragAutoScrolling = false
         continueDragAutoScroll()
@@ -1820,6 +1922,8 @@ private final class CityListReorderViewController: UIViewController, UICollectio
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        addedCityReveal?.cancel()
+        isRevealingAddedCity = false
         if cityViewPreference == .cards { setOpenActionsCityID(nil) }
     }
 
